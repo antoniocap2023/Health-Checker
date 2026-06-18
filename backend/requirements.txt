@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+anthropic
+python-dotenv
+
+# Testing (only needed to run `pytest`, not to run the app itself)
+pytest          # the test runner: discovers tests/test_*.py and test_* functions
+httpx           # required by FastAPI's TestClient to call the app in-process

@@ -19,10 +19,9 @@ import json
 import logging
 from datetime import date
 
-import deep_research
 from config import settings
 from prompts import build_system_prompt
-from tools import PUBMED_TOOL, run_tool
+from tools import TOOLS, ToolContext, tool_definitions
 
 logger = logging.getLogger("healthchecker.agent")
 
@@ -77,7 +76,7 @@ def run_chat_stream(messages, client, request_id, log):
                 model=settings.model,
                 max_tokens=settings.max_tokens,
                 system=system_prompt,
-                tools=[PUBMED_TOOL, deep_research.DEEP_RESEARCH_TOOL],
+                tools=tool_definitions(),
                 tool_choice=tool_choice,
                 messages=messages,
                 # Prompt caching: the API is stateless, so every turn re-sends the
@@ -121,10 +120,15 @@ def run_chat_stream(messages, client, request_id, log):
             # tool_use needs a matching tool_result; run each while budget
             # remains, otherwise return a "limit reached" result so it wraps up.
             messages.append({"role": "assistant", "content": final.content})
+            ctx = ToolContext(client=client, request_id=request_id, log=log)
             tool_results = []
             for block in final.content:
                 if block.type != "tool_use":
                     continue
+
+                # Budget guard — this is loop POLICY, not a tool's concern. Once the
+                # tool-call budget is spent, run no more tools: hand back an error
+                # result so the model wraps up with the evidence it already has.
                 if calls_used >= settings.max_tool_calls:
                     log.info("tool budget (%d) reached; skipping extra call", settings.max_tool_calls)
                     yield _event(type="notice", text="Search limit reached — answering from evidence already gathered.")
@@ -136,51 +140,31 @@ def run_chat_stream(messages, client, request_id, log):
                         }),
                         "is_error": True,
                     })
-                elif block.name == "deep_research":
-                    # deep_research fans out one sub-agent per paper and streams
-                    # live per-paper progress, so we drive its generator here
-                    # (rather than via run_tool) to interleave its events with
-                    # our NDJSON stream. It counts as ONE call against the budget
-                    # even though it expands to N internal sub-agent calls.
-                    calls_used += 1
-                    combined = {"papers": []}
-                    for kind, payload in deep_research.run_streaming(
-                        block.input.get("papers", []),
-                        client,
-                        request_id,
-                        log,
-                        goal=block.input.get("goal", ""),
-                    ):
+                    continue
+
+                # Generic dispatch: look the tool up in the registry and drive its
+                # generator, forwarding progress events into our stream and keeping
+                # the final result. The loop names no specific tool — a streaming
+                # tool (deep_research) and a request/response one (search_pubmed)
+                # look identical from here. Each tool_use counts as ONE call, even
+                # if internally it fans out to many sub-agents.
+                calls_used += 1
+                tool = TOOLS.get(block.name)
+                if tool is None:
+                    log.warning("unknown tool requested: %s", block.name)
+                    result_obj = {"error": f"unknown tool: {block.name}"}
+                else:
+                    result_obj = None
+                    for kind, payload in tool.run(block.input, ctx):
                         if kind == "event":
                             yield _event(**payload)
-                        else:  # ("result", combined)
-                            combined = payload
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps(combined),
-                    })
-                else:
-                    calls_used += 1
-                    # Surface the actual search the agent ran to the frontend.
-                    if block.name == "search_pubmed":
-                        yield _event(
-                            type="search",
-                            query=block.input.get("query", ""),
-                            max_results=block.input.get("max_results", 3),
-                            # Surface any optional filters the model applied so
-                            # the UI can show "filtered to meta-analysis, 2020+".
-                            filters={
-                                k: block.input[k]
-                                for k in ("publication_types", "last_n_years", "min_year", "max_year")
-                                if k in block.input
-                            },
-                        )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": run_tool(block, log, request_id),
-                    })
+                        else:  # ("result", obj)
+                            result_obj = payload
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": json.dumps(result_obj),
+                })
             messages.append({"role": "user", "content": tool_results})
     except Exception as exc:  # noqa: BLE001 - surface a clean error to the client
         log.exception("STREAM FAILED on turn %d: %s", turn, exc)

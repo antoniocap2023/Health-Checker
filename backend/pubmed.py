@@ -25,7 +25,7 @@ EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 logger = logging.getLogger("healthchecker.pubmed")
 
 # Optional study-type filter. The keys are the stable values we expose to the
-# LLM (see PUBMED_TOOL in main.py); the values are PubMed's exact Publication
+# LLM (see SearchPubmedTool in tools.py); the values are PubMed's exact Publication
 # Type strings. When the model asks for some of these, we AND a parenthesized
 # OR-group onto the query so it can request, e.g., only meta-analyses and
 # systematic reviews (the strongest evidence).

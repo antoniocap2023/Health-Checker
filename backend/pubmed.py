@@ -6,12 +6,9 @@ with their abstracts. This is what the `search_pubmed` Claude tool calls.
 
 NCBI E-utilities docs: https://www.ncbi.nlm.nih.gov/books/NBK25501/
 """
-import collections
 import json
 import logging
-import os
 import random
-import threading
 import time
 from datetime import date
 import urllib.error
@@ -19,19 +16,11 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-# Load backend/.env so NCBI_API_KEY is picked up (raises NCBI's rate limit from
-# ~3 to ~10 req/sec). Harmless if python-dotenv or the key is absent.
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
-except ImportError:
-    pass
+from config import settings
+from ratelimit import SlidingWindowRateLimiter
 
 ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-
-_API_KEY = os.environ.get("NCBI_API_KEY")
 
 logger = logging.getLogger("healthchecker.pubmed")
 
@@ -93,81 +82,17 @@ def _build_term(query, publication_types):
     return f"({query}) AND ({' OR '.join(tags)})"
 
 
-class SlidingWindowRateLimiter:
-    """Allow at most `max_requests` within any rolling `window_seconds` interval.
+# One shared limiter for all PubMed traffic in THIS process (the class now lives
+# in ratelimit.py). Rate and window come from settings: 9/sec with an NCBI key,
+# 2/sec without. On AWS this same limiter moves into a single pubmed-proxy
+# instance so the cap holds across every backend container, not just this process.
+_rate_limiter = SlidingWindowRateLimiter(settings.ncbi_rate_limit, settings.ncbi_window_seconds)
 
-    This is a "sliding window log": we keep the timestamp of every request we let
-    through. Before allowing a new one we (1) drop timestamps older than the
-    window — that's what makes the window *slide* with the clock — then (2) check
-    how many remain, and (3) if we're at the cap, sleep until the oldest one ages
-    out and re-check.
-
-    Unlike a fixed-window counter (reset every calendar second), this can't be
-    fooled by a burst that straddles a boundary, because it always looks back
-    exactly `window` seconds from *now*.
-
-    Thread-safe: our FastAPI chat endpoint is synchronous, so FastAPI runs it in
-    a thread pool and several chats can call PubMed at once. They share ONE
-    limiter instance and one lock, so the cap is global across all of them.
-    """
-
-    def __init__(self, max_requests, window_seconds):
-        self.max_requests = max_requests
-        self.window = window_seconds
-        # Monotonic timestamps of allowed requests still inside the window.
-        # Oldest is on the left (popleft), newest pushed on the right (append).
-        self._timestamps = collections.deque()
-        self._lock = threading.Lock()
-
-    def acquire(self, rid="-"):
-        """Block until one request is allowed under the window, then record it.
-
-        We hold the lock for the whole decision — including the sleep — so the
-        "is there a free slot?" check and the "claim it" are atomic. Otherwise
-        two threads could both see a free slot and both fire. The actual (slow)
-        HTTP request runs *after* this returns and the lock is released, so
-        throughput is still paced at ~max_requests/window, not fully serialized.
-
-        We use time.monotonic() rather than time.time() because the monotonic
-        clock only moves forward — it's immune to NTP/system-clock adjustments,
-        so the interval math stays correct.
-        """
-        with self._lock:
-            while True:
-                now = time.monotonic()
-                # 1. SLIDE: drop entries that have left the window.
-                cutoff = now - self.window
-                while self._timestamps and self._timestamps[0] <= cutoff:
-                    self._timestamps.popleft()
-
-                # 2. DETECT: under the cap? claim a slot and go.
-                if len(self._timestamps) < self.max_requests:
-                    self._timestamps.append(now)
-                    return
-
-                # 3. MITIGATE: full. A slot frees when the OLDEST entry ages out,
-                #    so wait until then (the "timeout before retrying"), then loop
-                #    back to re-slide and re-check — don't assume one slot opened.
-                wait = self._timestamps[0] + self.window - now
-                if wait > 0:
-                    logger.info("[%s] rate limit %d/%d in %.0fs window — waiting %.3fs",
-                                rid, len(self._timestamps), self.max_requests, self.window, wait)
-                    time.sleep(wait)
-
-
-# One shared limiter for all PubMed traffic. NCBI allows ~10 req/sec with an API
-# key and ~3 without; stay one under the keyed cap as a safety margin against
-# clock jitter or a key shared with another process.
-_RATE_LIMIT = 9 if _API_KEY else 2
-_rate_limiter = SlidingWindowRateLimiter(_RATE_LIMIT, window_seconds=1.0)
-
-# Retry policy for transient NCBI failures. The sliding-window limiter keeps us
-# UNDER the cap proactively; this is the reactive safety net for when a request
-# fails anyway (a 429 from a shared key, a 5xx, or a network blip).
-_MAX_RETRIES = 4              # attempts after the first try (so up to 5 total)
-_BACKOFF_BASE = 0.5          # seconds; the backoff window doubles each attempt
-# Only these are worth retrying. A 400 (bad query) would fail identically every
-# time, so retrying it just wastes the rate budget — let it raise immediately.
+# Only these statuses are worth retrying. A 400 (bad query) would fail identically
+# every time, so retrying it just wastes the rate budget — let it raise immediately.
+# The retry COUNT and backoff base are tunable in settings (ncbi_max_retries /
+# ncbi_backoff_base); the sliding-window limiter keeps us UNDER the cap proactively,
+# while this retry path is the reactive safety net for a 429/5xx/network blip.
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -181,7 +106,7 @@ def _request_with_retry(req, parse, rid, label):
     concurrent threads don't all retry in lockstep and re-create the overload.
     Non-transient errors (e.g. HTTP 400) and the final attempt re-raise.
     """
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(settings.ncbi_max_retries + 1):
         _rate_limiter.acquire(rid)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -195,12 +120,12 @@ def _request_with_retry(req, parse, rid, label):
                 if isinstance(exc, urllib.error.HTTPError)
                 else True
             )
-            if not transient or attempt == _MAX_RETRIES:
+            if not transient or attempt == settings.ncbi_max_retries:
                 raise
-            delay = random.uniform(0, _BACKOFF_BASE * (2 ** attempt))
+            delay = random.uniform(0, settings.ncbi_backoff_base * (2 ** attempt))
             logger.warning(
                 "[%s] %s attempt %d/%d failed (%s) — backing off %.2fs",
-                rid, label, attempt + 1, _MAX_RETRIES + 1, exc, delay,
+                rid, label, attempt + 1, settings.ncbi_max_retries + 1, exc, delay,
             )
             time.sleep(delay)
 
@@ -228,15 +153,15 @@ def _esearch(query, max_results, rid, *, publication_types=None, min_year=None, 
         params["datetype"] = "pdat"
         params["mindate"] = str(min_year) if min_year else "1800"
         params["maxdate"] = str(max_year) if max_year else "3000"
-    if _API_KEY:
-        params["api_key"] = _API_KEY
+    if settings.ncbi_api_key:
+        params["api_key"] = settings.ncbi_api_key
 
     url = f"{ESEARCH_URL}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "health-checker/1.0"})
     # HTTP request #1 of 2 per search. Log the full term (with any filters) going
     # out and (below) what came back with timing, so NCBI traffic is visible.
     logger.info("[%s] HTTP esearch GET term=%r retmax=%s api_key=%s",
-                rid, term, max_results, "yes" if _API_KEY else "no")
+                rid, term, max_results, "yes" if settings.ncbi_api_key else "no")
     started = time.perf_counter()
     data = _request_with_retry(req, json.load, rid, "esearch")
     elapsed_ms = (time.perf_counter() - started) * 1000
@@ -314,8 +239,8 @@ def _efetch(ids, rid):
         "retmode": "xml",
         "tool": "health-checker",
     }
-    if _API_KEY:
-        params["api_key"] = _API_KEY
+    if settings.ncbi_api_key:
+        params["api_key"] = settings.ncbi_api_key
 
     url = f"{EFETCH_URL}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "health-checker/1.0"})
@@ -402,8 +327,8 @@ def fetch_full_text(pmcid, rid="-"):
         "retmode": "xml",
         "tool": "health-checker",
     }
-    if _API_KEY:
-        params["api_key"] = _API_KEY
+    if settings.ncbi_api_key:
+        params["api_key"] = settings.ncbi_api_key
 
     url = f"{PMC_EFETCH_URL}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "health-checker/1.0"})

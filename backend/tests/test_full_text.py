@@ -148,8 +148,8 @@ def test_fetch_full_text_real_open_access():
     # the OA subset returns a <body> via efetch), then assert we get real text.
     params = {"db": "pmc", "term": "open access[filter] AND aspirin",
               "retmax": "3", "retmode": "json", "tool": "health-checker"}
-    if pubmed._API_KEY:
-        params["api_key"] = pubmed._API_KEY
+    if pubmed.settings.ncbi_api_key:
+        params["api_key"] = pubmed.settings.ncbi_api_key
     url = f"{pubmed.ESEARCH_URL}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "health-checker/1.0"})
     with urllib.request.urlopen(req, timeout=30) as resp:

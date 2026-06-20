@@ -155,11 +155,11 @@ def test_system_prompt_includes_todays_date(monkeypatch, client):
 def test_search_budget_reached_emits_notice(monkeypatch, client):
     """When the tool-call budget is spent, the loop emits a 'notice' and wraps up.
 
-    Forcing MAX_TOOL_CALLS to 0 means the very first tool_use trips the budget
-    path: instead of running the search we send back an is_error result and emit
-    a user-facing notice, then the next turn answers.
+    Forcing the tool-call budget to 0 means the very first tool_use trips the
+    budget path: instead of running the search we send back an is_error result and
+    emit a user-facing notice, then the next turn answers.
     """
-    monkeypatch.setattr(main, "MAX_TOOL_CALLS", 0)
+    monkeypatch.setattr(main.settings, "max_tool_calls", 0)
 
     # search_and_fetch must NOT be called when the budget is already spent.
     def boom(**kwargs):

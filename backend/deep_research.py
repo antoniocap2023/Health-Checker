@@ -16,27 +16,14 @@ agent reads as the tool result.
 """
 import json
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pubmed
+from config import settings
 
-# Sub-agents read a single paper and extract findings — a cheaper/faster model
-# than the main Opus loop is plenty, and we fan out several at once. Overridable
-# via env so the model can be tuned without a code change.
-SUBAGENT_MODEL = os.environ.get("DEEP_RESEARCH_MODEL", "claude-sonnet-4-6")
-# Bound the fan-out: each paper is a full-text Sonnet call, so cap how many a
-# single deep_research call may spin up (extra papers are dropped with a notice).
-DEEP_RESEARCH_MAX_PAPERS = int(os.environ.get("DEEP_RESEARCH_MAX_PAPERS", "6"))
-# How many sub-agents run at once. The PubMed rate limiter still paces NCBI calls
-# globally; this just bounds concurrent Anthropic calls / memory.
-DEEP_RESEARCH_MAX_WORKERS = int(os.environ.get("DEEP_RESEARCH_MAX_WORKERS", "4"))
-# Output ceiling per sub-agent (the findings it returns, not the paper it reads).
-SUBAGENT_MAX_TOKENS = int(os.environ.get("DEEP_RESEARCH_MAX_TOKENS", "2048"))
-# A few open-access papers are enormous; cap the input text we feed a sub-agent so
-# one giant paper can't blow up cost/latency. We note in the prompt when truncated.
-FULL_TEXT_CHAR_CAP = int(os.environ.get("DEEP_RESEARCH_CHAR_CAP", "120000"))
+# All tunables (sub-agent model, fan-out caps, token/char limits) now live in
+# config.settings — see the deep_research_* fields there for what each does.
 
 logger = logging.getLogger("healthchecker.deep_research")
 
@@ -176,9 +163,9 @@ def _research_one_paper(client, paper, goal, rid, log):
         }
 
     text = full_text
-    truncated = len(text) > FULL_TEXT_CHAR_CAP
+    truncated = len(text) > settings.deep_research_char_cap
     if truncated:
-        text = text[:FULL_TEXT_CHAR_CAP]
+        text = text[:settings.deep_research_char_cap]
 
     prompt = _build_subagent_prompt(art, text, instructions, goal, truncated)
     # Log the sub-agent call the same way the main loop logs a turn: what went in
@@ -187,13 +174,13 @@ def _research_one_paper(client, paper, goal, rid, log):
     # only, mirroring search_pubmed's FULL payload dump, so INFO stays scannable.
     log.info(
         "deep_research paper %s sub-agent CALL model=%s text_chars=%d truncated=%s instruction=%r",
-        pmid, SUBAGENT_MODEL, len(text), truncated, instructions[:120],
+        pmid, settings.deep_research_model, len(text), truncated, instructions[:120],
     )
     log.debug("deep_research paper %s sub-agent PROMPT=%r", pmid, prompt)
     started = time.perf_counter()
     msg = client.messages.create(
-        model=SUBAGENT_MODEL,
-        max_tokens=SUBAGENT_MAX_TOKENS,
+        model=settings.deep_research_model,
+        max_tokens=settings.deep_research_max_tokens,
         system=SUBAGENT_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -270,10 +257,10 @@ def run_streaming(papers, client, rid, log, goal=""):
     """
     papers = [_normalize_paper(p) for p in _coerce_papers(papers)]
     dropped = 0
-    if len(papers) > DEEP_RESEARCH_MAX_PAPERS:
-        dropped = len(papers) - DEEP_RESEARCH_MAX_PAPERS
-        papers = papers[:DEEP_RESEARCH_MAX_PAPERS]
-        log.info("deep_research clamped to %d papers (dropped %d)", DEEP_RESEARCH_MAX_PAPERS, dropped)
+    if len(papers) > settings.deep_research_max_papers:
+        dropped = len(papers) - settings.deep_research_max_papers
+        papers = papers[:settings.deep_research_max_papers]
+        log.info("deep_research clamped to %d papers (dropped %d)", settings.deep_research_max_papers, dropped)
 
     pmids = [str(p.get("pmid", "")).strip() for p in papers]
     start_event = {"type": "deep_research", "papers": pmids}
@@ -284,7 +271,7 @@ def run_streaming(papers, client, rid, log, goal=""):
     yield ("event", start_event)
 
     results = []
-    workers = min(DEEP_RESEARCH_MAX_WORKERS, len(papers)) or 1
+    workers = min(settings.deep_research_max_workers, len(papers)) or 1
     with ThreadPoolExecutor(max_workers=workers) as pool:
         future_to_paper = {
             pool.submit(_research_one_paper, client, p, goal, rid, log): p

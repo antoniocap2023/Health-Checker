@@ -132,11 +132,11 @@ def test_non_retryable_raises_immediately(monkeypatch, captured):
 def test_gives_up_after_max_retries(monkeypatch, captured):
     """Persistent 503s eventually re-raise after the retry budget is exhausted.
 
-    Total attempts = _MAX_RETRIES + 1 (the first try plus the retries), so we
-    script that many failures and expect _MAX_RETRIES sleeps (one between each
+    Total attempts = ncbi_max_retries + 1 (the first try plus the retries), so we
+    script that many failures and expect ncbi_max_retries sleeps (one between each
     pair of attempts) before the final failure propagates.
     """
-    attempts = pubmed._MAX_RETRIES + 1
+    attempts = pubmed.settings.ncbi_max_retries + 1
     monkeypatch.setattr(
         pubmed.urllib.request, "urlopen",
         _make_fake_urlopen([_http_error(503)] * attempts),
@@ -144,14 +144,14 @@ def test_gives_up_after_max_retries(monkeypatch, captured):
 
     with pytest.raises(urllib.error.HTTPError):
         _call(None)
-    assert len(captured["sleeps"]) == pubmed._MAX_RETRIES
+    assert len(captured["sleeps"]) == pubmed.settings.ncbi_max_retries
 
 
 def test_backoff_delays_double(monkeypatch, captured):
     """The backoff window doubles each attempt: base * 2**attempt.
 
-    With _BACKOFF_BASE = 0.5 and _MAX_RETRIES = 4, four failures then a success
-    means random.uniform is called with upper bounds 0.5, 1.0, 2.0, 4.0.
+    With ncbi_backoff_base = 0.5 and ncbi_max_retries = 4, four failures then a
+    success means random.uniform is called with upper bounds 0.5, 1.0, 2.0, 4.0.
     """
     monkeypatch.setattr(
         pubmed.urllib.request, "urlopen",
@@ -160,7 +160,7 @@ def test_backoff_delays_double(monkeypatch, captured):
 
     assert _call(None) == "OK"
 
-    expected = [pubmed._BACKOFF_BASE * (2 ** attempt) for attempt in range(4)]
+    expected = [pubmed.settings.ncbi_backoff_base * (2 ** attempt) for attempt in range(4)]
     assert captured["uniform_highs"] == expected
     # And because our fake_uniform returns the high end, the sleeps match too.
     assert captured["sleeps"] == expected

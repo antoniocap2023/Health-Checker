@@ -1,10 +1,10 @@
-"""Tests for SlidingWindowRateLimiter (pubmed.py).
+"""Tests for SlidingWindowRateLimiter (ratelimit.py).
 
 THE BIG IDEA: the limiter's behaviour is all about *time* — "how many requests
 in the last N seconds". A test must not depend on real wall-clock time, or it
 would be slow (real sleeps) and flaky (timing varies machine to machine). So for
 the deterministic tests we install a FAKE CLOCK: we replace `time.monotonic` and
-`time.sleep` inside the pubmed module with our own functions, where "sleeping"
+`time.sleep` inside the ratelimit module with our own functions, where "sleeping"
 simply jumps a counter forward. That makes every test instant and exact.
 
 The one exception is the concurrency test at the bottom, which uses the REAL
@@ -15,6 +15,7 @@ import threading
 import time
 
 import pubmed
+import ratelimit
 
 
 class FakeClock:
@@ -38,22 +39,23 @@ class FakeClock:
 
 
 def _install_fake_clock(monkeypatch):
-    """Point pubmed's time.monotonic/time.sleep at a FakeClock; return the clock.
+    """Point ratelimit's time.monotonic/time.sleep at a FakeClock; return the clock.
 
-    `monkeypatch` is a built-in pytest fixture that undoes every change it makes
-    automatically when the test finishes, so we never leak the fake clock into
-    other tests.
+    The limiter lives in ratelimit.py and reads time via that module's `time`, so
+    we patch `ratelimit.time` (not pubmed.time). `monkeypatch` is a built-in pytest
+    fixture that undoes every change it makes automatically when the test finishes,
+    so we never leak the fake clock into other tests.
     """
     clock = FakeClock()
-    monkeypatch.setattr(pubmed.time, "monotonic", clock.monotonic)
-    monkeypatch.setattr(pubmed.time, "sleep", clock.sleep)
+    monkeypatch.setattr(ratelimit.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(ratelimit.time, "sleep", clock.sleep)
     return clock
 
 
 def test_under_cap_returns_immediately(monkeypatch):
     """The first `max_requests` acquires should all pass without any waiting."""
     clock = _install_fake_clock(monkeypatch)
-    limiter = pubmed.SlidingWindowRateLimiter(max_requests=3, window_seconds=1.0)
+    limiter = ratelimit.SlidingWindowRateLimiter(max_requests=3, window_seconds=1.0)
 
     limiter.acquire()
     limiter.acquire()
@@ -71,7 +73,7 @@ def test_at_cap_waits_until_oldest_ages_out(monkeypatch):
     t=1.0 — so the limiter should sleep exactly 1.0s.
     """
     clock = _install_fake_clock(monkeypatch)
-    limiter = pubmed.SlidingWindowRateLimiter(max_requests=2, window_seconds=1.0)
+    limiter = ratelimit.SlidingWindowRateLimiter(max_requests=2, window_seconds=1.0)
 
     limiter.acquire()  # records t=0
     limiter.acquire()  # records t=0 (window now full: [0, 0])
@@ -88,7 +90,7 @@ def test_window_slides(monkeypatch):
     no sleep.
     """
     clock = _install_fake_clock(monkeypatch)
-    limiter = pubmed.SlidingWindowRateLimiter(max_requests=2, window_seconds=1.0)
+    limiter = ratelimit.SlidingWindowRateLimiter(max_requests=2, window_seconds=1.0)
 
     limiter.acquire()
     limiter.acquire()  # window full at t=0
@@ -109,7 +111,7 @@ def test_second_full_cycle_waits_for_the_right_entry(monkeypatch):
     A fifth is then full again ([1.0, 1.0]) and must wait until t=2.0.
     """
     clock = _install_fake_clock(monkeypatch)
-    limiter = pubmed.SlidingWindowRateLimiter(max_requests=2, window_seconds=1.0)
+    limiter = ratelimit.SlidingWindowRateLimiter(max_requests=2, window_seconds=1.0)
 
     limiter.acquire()          # t=0
     limiter.acquire()          # t=0  -> full
@@ -129,8 +131,9 @@ def test_production_limiter_stays_under_ncbi_cap():
     NCBI's limit is ~10/sec with an API key (~3 without). Every real NCBI call —
     including the ones in the integration and e2e tests — flows through this one
     `pubmed._rate_limiter`, so this single check is what keeps the whole suite
-    (and production) under NCBI's cap. If someone raises `_RATE_LIMIT` or shrinks
-    the window, this fails here instead of getting us blocked by NCBI.
+    (and production) under NCBI's cap. If someone raises the rate
+    (settings.ncbi_rate_limit) or shrinks the window, this fails here instead of
+    getting us blocked by NCBI.
     """
     limiter = pubmed._rate_limiter
     rate_per_sec = limiter.max_requests / limiter.window
@@ -151,7 +154,7 @@ def test_concurrent_threads_never_exceed_cap():
     Total real time is small: 20 requests / 5 per 0.2s ~= 0.8s.
     """
     cap, window = 5, 0.2
-    limiter = pubmed.SlidingWindowRateLimiter(max_requests=cap, window_seconds=window)
+    limiter = ratelimit.SlidingWindowRateLimiter(max_requests=cap, window_seconds=window)
 
     fire_times = []
     record_lock = threading.Lock()  # protects our list, unrelated to the limiter

@@ -77,7 +77,7 @@ def test_full_text_preferred_when_pmcid_present(monkeypatch):
     assert result["papers"][0]["source"] == "full_text"
     # The sub-agent ran on the configured (cheaper) model with the full text.
     call = client.messages.calls[0]
-    assert call["model"] == deep_research.SUBAGENT_MODEL
+    assert call["model"] == deep_research.settings.deep_research_model
     assert "FULL BODY TEXT" in call["messages"][0]["content"]
 
 
@@ -206,7 +206,7 @@ def test_clamps_to_max_papers(monkeypatch):
                         lambda pmids, rid="-": _articles(pmids[0], pmcid="PMC1"))
     monkeypatch.setattr(deep_research.pubmed, "fetch_full_text",
                         lambda pmcid, rid="-": "body")
-    monkeypatch.setattr(deep_research, "DEEP_RESEARCH_MAX_PAPERS", 2)
+    monkeypatch.setattr(deep_research.settings, "deep_research_max_papers", 2)
     client = _FakeClient()
 
     papers = [{"pmid": str(i), "instructions": "x"} for i in range(5)]

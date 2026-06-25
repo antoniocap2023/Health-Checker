@@ -70,3 +70,29 @@ dataset=questions.jsonl @ <git sha>
   with 4 abstain cases; validator + independent candidate finder in place.
 - **Next:** Phase 2 (populate the eval table + read records back), then Phase 3
   (the four checks) — the first scored run will be the **baseline** entry here.
+
+
+### Run baseline-001 — 2026-06-25
+
+**Hypothesis / what changed since last run:** baseline (first scored run)
+
+**Config:** model=claude-opus-4-8 · judge=claude-sonnet-4-6 · max_tool_calls=12 · concise_mode=True · N=3 · scope=dev+test · dataset=questions.jsonl @ d862ab26
+
+**Results (mean ± spread):**
+
+| stage | dev | test |
+|---|---|---|
+| Validity — fabricated-PMID rate | 0.00 | 0.02 |
+| Validity — uncited-claim rate | 0.06 | 0.07 |
+| Relevance — recall@k vs gold | 0.70 ± 0.08 | 0.61 ± 0.16 |
+| Faithfulness — claim-level rate | 0.95 ± 0.02 | 0.89 ± 0.06 |
+| Thoroughness — sub-point coverage | 0.93 ± 0.02 | 0.94 ± 0.04 |
+| Abstention — false-answer rate | 1.00 | 0.67 |
+
+**Judge validation:** 8/8 trap tests pass (see `JUDGE_TRUST.md`); formal agreement / κ is Phase 5.
+
+**Observations:** Dev attribution was abstention (9), faithfulness (6), relevance (2); 7 ok — but **inspecting the answers showed the abstention "failures" were mislabeled, not agent errors.** The adversarial questions (alkaline water, ear candling) have PubMed evidence debunking them, so the agent correctly *refuted* them with citations (e.g. q011 cited a cancer-diet review) — which our `abstain` label wrongly scored as a failure. The judge was right; the dataset was wrong. Genuine signals to act on later: relevance recall 0.70 (misses ~1/3 of gold) and faithfulness 0.95 | retrieval-ok.
+
+**Decision:** baseline established (noise floor recorded). Its main value was surfacing a dataset-labeling bug, not an agent bug.
+
+**Next iteration:** **Relabel the dataset** — refutable myths → `answer` (with debunking gold + refutation sub-points); reserve `abstain` for genuine no-evidence questions. Then re-baseline (`baseline-002`) and turn to relevance/faithfulness.

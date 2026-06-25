@@ -30,6 +30,19 @@ gold dataset and curation rules in `evals/data/README.md`.
 - Eval runs persist to a **separate** DynamoDB table
   (`settings.eval_dynamodb_table_name`), never the production conversations table.
 
+## Roadmap & status
+
+Where the eval project is and what's next (goals, done phases, the next run, and the
+improvement-loop plan) lives in [`evals/ROADMAP.md`](evals/ROADMAP.md).
+
+## Judge trust
+
+The eval's LLM judges must be shown to have a working failure mode before their
+numbers are trusted. Trap-test + gray-zone results live in
+[`evals/JUDGE_TRUST.md`](evals/JUDGE_TRUST.md); reproduce with
+`backend/venv/bin/python evals/judge_trust.py`. Formal judge-vs-human validation
+(agreement / κ) is Phase 5.
+
 ## Eval journal — log every run
 
 **After every eval run, append an entry to [`evals/JOURNAL.md`](evals/JOURNAL.md)**

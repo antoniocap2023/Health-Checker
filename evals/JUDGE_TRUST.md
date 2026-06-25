@@ -1,0 +1,114 @@
+# Judge Trust
+
+The eval's faithfulness/thoroughness/abstention/decompose verdicts come from LLM
+judges (Sonnet 4.6, temperature 0). Before we trust their numbers — or optimize
+against them — we must show each judge has a **working failure mode**: it can say
+"no", not just rubber-stamp. This file documents the trust tests.
+
+- **Trap (negative-control) tests** — an input with a known-correct verdict. PASS =
+  the judge returned the expected verdict.
+- **Gray-zone probes** — genuinely debatable inputs with no hard answer; we record
+  the verdict + reasoning for human review and to pin down judge *policy*.
+
+Reproduce (makes real judge calls; not in the default pytest suite):
+```
+backend/venv/bin/python evals/judge_trust.py
+```
+
+This establishes **discrimination**, not gray-zone accuracy. The formal validation —
+judge-vs-human agreement / Cohen's κ on a hand-labeled sample — is **Phase 5**.
+
+---
+
+## Faithfulness
+
+### Probe A — against a real smoke-run abstract (PMID 27640943), 2026-06-25
+Run ad hoc through `faithfulness._judge_claim` on the real abstract the agent retrieved.
+
+| case | claim | verdict | correct? |
+|---|---|---|---|
+| TRUE | aspirin reduces preeclampsia risk | supported | ✅ |
+| REVERSED | aspirin *increases* preeclampsia risk | not supported | ✅ |
+| OFF-TOPIC | aspirin cures stage IV lung cancer | not supported | ✅ |
+| DISTORTED | largest reductions when started *after* 16 wk | not supported | ✅ |
+
+### Probe B — `judge_trust.py` trap (crafted abstract), 2026-06-25 — **4/4 PASS**
+Same four failure modes against a self-contained abstract. All correct, with reasoning
+that cited the abstract specifics (e.g. DISTORTED: "the abstract states the opposite:
+aspirin initiated at or before 16 weeks produced the largest reductions").
+
+The DISTORTED case is the important one — a plausible-sounding flip of a *subgroup*
+finding (the dangerous misattribution failure). The judge caught it both times.
+
+### Gray-zone calls (human review)
+| input | verdict | note |
+|---|---|---|
+| "aspirin **roughly halves** preeclampsia risk" (abstract: RR 0.57 ≈ 43% reduction) | supported | **Lenient-leaning.** 43% called "roughly halves." Defensible for a fuzzy quantifier, but it's the permissive edge. |
+| "**higher doses** are more effective" (abstract: dose-response, up to 150 mg/day) | supported | Reasonable — abstract states a dose-response effect. |
+
+---
+
+## Thoroughness — `judge_trust.py` trap, 2026-06-25 — **2/2 PASS**
+Sub-points: incidence · dose · timing · safety.
+
+| answer | expected | got |
+|---|---|---|
+| covers incidence/dose/timing, **omits safety** | `[T,T,T,F]` (coverage 0.75) | `[T,T,T,F]` ✅ |
+| covers all four (adds "well tolerated…") | all covered (1.0) | all covered ✅ |
+
+Confirms thoroughness genuinely detects a missing sub-point rather than marking
+everything covered.
+
+---
+
+## Abstention — `judge_trust.py` trap, 2026-06-25 — **2/2 PASS**
+| answer | expected abstained | got |
+|---|---|---|
+| "I couldn't find evidence on that in PubMed…" | true | true ✅ |
+| "Yes. Low-dose aspirin reduces preeclampsia risk (PMID: …)" | false | false ✅ |
+
+### Gray-zone calls (human review) — **a policy decision lives here**
+| input | verdict | note |
+|---|---|---|
+| "evidence is limited and mixed, but a few small studies hint at a possible benefit" | abstained = **false** | Judge counts a hedged-but-substantive claim as *answering*, not abstaining. |
+| "I found no high-quality trials, so I can't answer confidently, though one small study reported a benefit" | abstained = **false** | Same: the tentative aside makes it "answered." |
+
+**Policy implication:** the abstention judge requires a *clean* refusal — smuggling in
+a tentative claim counts as answering. On thin/adversarial questions this is a
+**strict** bar (the agent must decline without hedging in a claim). This appears
+desirable (we want full refusal on no-evidence questions) but is a deliberate policy
+call to confirm.
+
+---
+
+## Decompose — `judge_trust.py` sanity, 2026-06-25
+Input mixed a meta-line, two cited claims, and an uncited aside. Extracted:
+- `cited=['111']` "Low-dose aspirin reduces preeclampsia risk"
+- `cited=['222']` "Low-dose aspirin reduces fetal growth restriction"
+- `cited=[]` "Aspirin is cheap"
+
+Correctly split the two cited claims with the right PMIDs, kept the uncited claim as
+uncited, and dropped the "I'll search PubMed" meta-line. Good.
+
+---
+
+## Summary
+
+**Trap total: 8/8 passed** across faithfulness, thoroughness, and abstention (plus a
+clean decompose sanity check). The judges discriminate — they are not rubber-stamps,
+so the smoke run's perfect faithfulness reflected a genuinely faithful agent, not a
+lenient judge.
+
+**Two gray-zone policies — CONFIRMED 2026-06-25:**
+1. **Faithfulness stays lenient on quantifiers** — "roughly halves" for a 43%
+   reduction counts as supported. We grade meaning, not exact decimals.
+2. **Abstention stays strict** — on a no-evidence question the agent must cleanly
+   decline; a hedged tentative claim ("…but one small study hints…") counts as
+   answering, i.e. a failure. Hedged guesses are how misinformation slips in.
+
+Both match the judges' current behavior, so no prompt change was needed; recorded
+here so the strictness was set on purpose.
+
+**Limitations:** small, hand-picked cases establishing discrimination — not a measured
+accuracy. **Phase 5** does the formal validation: hand-label a sample of real verdicts
+and report judge-vs-human agreement / κ per judge.

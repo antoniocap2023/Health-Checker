@@ -96,3 +96,29 @@ dataset=questions.jsonl @ <git sha>
 **Decision:** baseline established (noise floor recorded). Its main value was surfacing a dataset-labeling bug, not an agent bug.
 
 **Next iteration:** **Relabel the dataset** — refutable myths → `answer` (with debunking gold + refutation sub-points); reserve `abstain` for genuine no-evidence questions. Then re-baseline (`baseline-002`) and turn to relevance/faithfulness.
+
+
+### Run baseline-002 — 2026-06-25
+
+**Hypothesis / what changed since last run:** baseline (first scored run)
+
+**Config:** model=claude-opus-4-8 · judge=claude-sonnet-4-6 · max_tool_calls=12 · concise_mode=True · N=3 · scope=dev+test · dataset=questions.jsonl @ 8c451b5f
+
+**Results (mean ± spread):**
+
+| stage | dev | test |
+|---|---|---|
+| Validity — fabricated-PMID rate | 0.00 | 0.00 |
+| Validity — uncited-claim rate | 0.10 | 0.04 |
+| Relevance — recall@k vs gold | 0.58 ± 0.12 | 0.58 ± 0.12 |
+| Faithfulness — claim-level rate | 0.92 ± 0.02 | 0.92 ± 0.04 |
+| Thoroughness — sub-point coverage | 0.97 ± 0.00 | 1.00 ± 0.00 |
+| Abstention — false-answer rate | n/a | n/a |
+
+**Judge validation:** 8/8 trap tests pass (see `JUDGE_TRUST.md`); formal agreement / κ is Phase 5.
+
+**Observations:** Dev failures localize to: faithfulness (10), relevance (7), thoroughness (1); 6 ok. Faithfulness | retrieval-ok = 0.93.
+
+**Decision:** baseline — establishes the noise floor; nothing to beat yet.
+
+**Next iteration:** Largest failure bucket is **faithfulness** → tighten the answering/grounding prompt.

@@ -53,6 +53,11 @@ This is where the project comes alive and the showcase lives: use the eval to dr
 
 Repeat across stages (relevance → faithfulness → thoroughness). Each logged entry in `JOURNAL.md` is the iteration story.
 
+## Cost optimizations (future)
+
+- **Batch the judges — only once eval runs get frequent.** `check_run`'s judge calls are independent one-shot `messages.create` calls — a clean fit for the **Batches API** (50% off, async, ~1h). *Not worth it yet:* judge cost is ~$2 per run at 12 questions, ~$8–9 at 50 (Sonnet, ~½¢/call), so 50% off saves a dollar or two per run — less than the cost of restructuring `check_run` into submit-batch + poll + out-of-order handling. **The trigger is run *frequency*, not dataset size:** build it when the improvement loop (Phase 8) is re-running the benchmark dozens of times, or the weekly cron is live — cumulative judge volume is where 50% adds up. Discounts only the (cheaper, Sonnet) judge side; the Opus agent loops in `populate` can't be batched.
+- Cheaper levers available now: smaller `N` for routine re-baselines (N=1 for quick checks), dev-only runs during the improvement loop.
+
 ## Known gaps / decisions on record
 - **abstain=0** in the seed — restore during dataset growth (genuine no-evidence questions).
 - **Judge policies** (recorded in `JUDGE_TRUST.md`): faithfulness lenient on fuzzy quantifiers; abstention strict (hedged claim = answered).

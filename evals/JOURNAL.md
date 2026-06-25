@@ -122,3 +122,18 @@ dataset=questions.jsonl @ <git sha>
 **Decision:** baseline — establishes the noise floor; nothing to beat yet.
 
 **Next iteration:** Largest failure bucket is **faithfulness** → tighten the answering/grounding prompt.
+
+
+### Methodology change — metric hardening — 2026-06-25 (no agent change)
+
+Inspecting baseline-002 showed its weak relevance/faithfulness numbers were **measurement bugs, not agent regressions** (same lesson as baseline-001's labeling bug). Three fixes, all to the eval (the agent is unchanged):
+
+- **Relevance → topical judge.** Replaced exact gold-PMID overlap (which can never be exhaustive — q011 scored 0.0 despite a correct refutation because the agent found a *different* valid debunking paper) with a reference-free topical relevance judge. Headline is now **hit@k + precision**; the old gold-PMID overlap is kept as a **diagnostic** (`gold_recall`). Gold abstracts/sub-points calibrate the judge.
+- **Faithfulness → exclude unverifiable citations.** When a cited paper has **no abstract** in PubMed (warning letters, comments — q012 cited several), the judge can't verify the claim. Those no longer count against faithfulness; they're reported separately as **`unverifiable_citation_rate`**. A claim citing a PMID *not* retrieved (real fabrication) still counts as unsupported.
+- **Decompose token fix.** The decomposer ran at 1024 max-tokens and silently truncated long answers to **zero claims** (q007 → 0 claims; at 4096 → 20). Raised `eval_decompose_max_tokens` to 4096, so long answers are scored instead of dropped.
+
+**Distinction on record:** an **uncited** claim (no citation at all) is an **agent** problem — the agent must cite everything — and is tracked as `uncited_claim_rate` (fix in the agent later). An **unverifiable** citation (cited but the source has no abstract) is an **eval** limitation, not an agent fault.
+
+**Judge trust:** re-ran `judge_trust.py` → **10/10** trap tests (added 2 relevance traps; existing faithfulness/thoroughness/abstention still pass). Tests green (33 evals + 63 backend).
+
+**Next:** re-score the baseline-002 records under these v2 metrics (no agent re-runs) → log as `baseline-002-rescore` to show the corrected numbers side-by-side with baseline-002.

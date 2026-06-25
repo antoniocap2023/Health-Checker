@@ -19,21 +19,15 @@ Where the eval project is and what's next. Companion to
 | 2 | **Populate + read** — run the agent into a separate eval table, tagged by `run_id` | ✅ |
 | 3 | **The four checks** — validity, relevance (deterministic) + faithfulness, thoroughness, abstention (Sonnet judges, temp 0) | ✅ |
 | 4 | **Aggregation + journal** — metrics, noise floor, conditional scoring, failure attribution; baseline entry | ✅ |
-| — | **Judge trust** — 8/8 trap tests; gray-zone policies recorded | ✅ |
+| — | **Judge trust** — 10/10 trap tests (incl. relevance); gray-zone policies recorded | ✅ |
+| 5 | **Metric hardening** — relevance → topical hit@k + precision (judge; gold demoted to diagnostic); faithfulness excludes unverifiable (no-abstract) citations; decompose token-truncation fix | ✅ (code; re-score pending) |
 
 Goal (1) is largely in hand: a working, defensible measurement instrument with a noise floor, dev/test split, and trusted judges.
 
-**What baseline-001 taught us:** the eval's first run surfaced a *dataset-labeling bug, not an agent bug* — myths with debunking evidence were mislabeled `abstain`. Fixed by relabeling (myths → `answer`/refute; thin questions → `answer` with caveats). Known gap created: **abstain=0** in the seed (see below).
+**What the baselines taught us — three measurement bugs, not agent bugs:** (1) baseline-001: myths mislabeled `abstain` → relabeled to `answer`/refute. (2) baseline-002: relevance via exact gold-PMID match under-counts valid alternatives → switched to a topical relevance judge. (3) baseline-002: faithfulness penalized citations to abstract-less papers, and decompose silently truncated long answers to zero claims → both fixed. The eval keeps catching its *own* flaws before they mislead us — that's the trust story.
 
-## Immediate next: `baseline-002`
-
-Re-run on the corrected dataset to lock in the clean bar:
-```
-backend/venv/bin/python evals/populate.py  --run-id baseline-002 -n 3
-backend/venv/bin/python evals/check_run.py --run-id baseline-002
-backend/venv/bin/python evals/report.py    --run-id baseline-002 --append-journal
-```
-Expect: myths (q011/q012) score as refutations; thin Qs (q009/q010) tested on the "flag limited evidence" sub-point; abstention reads `n/a`; carry-over signals = relevance recall ~0.70 and some faithfulness dings. This entry becomes the bar future changes must beat.
+## Immediate next: re-score baseline-002 under the hardened metrics
+Re-score the existing baseline-002 records (no agent re-runs — retrieved sets are stored) to see corrected relevance/faithfulness, and journal it as `baseline-002-rescore`. Then (optionally) a fresh `baseline-003` once the dataset grows.
 
 ## What's left
 
@@ -42,6 +36,14 @@ Expect: myths (q011/q012) score as refutations; thin Qs (q009/q010) tested on th
 - **Phase 6 — Online eval.** Point the reference-free checks (validity, faithfulness) at *real* user conversations (read-only sample of the production table). Monitoring real usage, not just the benchmark.
 - **Phase 7 — CI/CD (GitHub Actions).** Automate deploys: push → dev, manual button → prod (OIDC, no long-lived keys).
 - **Phase 8 — The improvement loop (headline of goal 2).** Weekly job: run the benchmark → failure-attribution points at the weakest stage → an "improvement proposer" suggests a prompt/param change → apply → re-eval → **keep only if it beats the noise floor** → log in `JOURNAL.md`.
+
+  **The auto-improvement agent layer (the "loop engineering" showcase).** A Claude layer *on top of* this eval that closes the loop semi-autonomously:
+  1. **Review** — reads the latest run's results, the failure attribution, the per-claim/per-paper judge detail, and the `JOURNAL.md` history.
+  2. **Propose** — drafts a concrete, single-variable change for the next run (e.g. "tighten the answering prompt to cite every claim"; "broaden the search query construction") tied to the weakest stage, with the expected metric effect.
+  3. **Approve** — presents the proposal; the human simply says **"yes"** (human-in-the-loop gate — no silent self-editing).
+  4. **Apply + re-eval + journal** — makes the change, runs `populate`→`check`→`report`, and writes the before/after to the journal, flagging whether the gain beat the noise floor.
+
+  Runs on a weekly cadence. This is the part that demonstrates loop-engineering, not just measurement — the eval becomes the feedback signal an agent optimizes the product against, with a human approval step.
 
 ## The payoff — the iterations themselves
 
@@ -62,3 +64,5 @@ Repeat across stages (relevance → faithfulness → thoroughness). Each logged 
 - **abstain=0** in the seed — restore during dataset growth (genuine no-evidence questions).
 - **Judge policies** (recorded in `JUDGE_TRUST.md`): faithfulness lenient on fuzzy quantifiers; abstention strict (hedged claim = answered).
 - **Thin-evidence behavior** = `answer` with an explicit "evidence is limited" sub-point (no separate calibration check yet).
+- **Uncited vs unverifiable** — an *uncited* claim (no citation at all) is an **agent** problem (must cite everything); tracked as `uncited_claim_rate`, to be fixed in the agent later. An *unverifiable* citation (cited paper has no abstract to check against) is an **eval** limitation, not an agent fault; tracked as `unverifiable_citation_rate`.
+- **Relevance is topical (option A)** — measures "did it retrieve a paper that addresses the question," not evidence quality. Quality-weighting (meta-analysis > small study) is a future option B.

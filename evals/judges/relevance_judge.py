@@ -21,7 +21,7 @@ different intervention, or a passing mention).
 - You may see only a title (no abstract); judge from the title in that case.
 - Give a one-sentence reason."""
 
-_SCHEMA = {
+SCHEMA = {
     "type": "object",
     "properties": {
         "relevant": {"type": "boolean"},
@@ -31,26 +31,24 @@ _SCHEMA = {
 }
 
 
-def _judge_paper(client, question, subpoints, article):
+def build_paper(question, subpoints, article):
+    """The (system, user) prompt pair for judging one retrieved paper's relevance."""
     rubric = ""
     if subpoints:
         rubric = "\nThe question is really asking about: " + "; ".join(subpoints)
     paper = (f"PMID {article.get('pmid')} — {article.get('title','')}\n"
              f"{article.get('abstract','') or '(no abstract available)'}")
-    user = f"QUESTION:\n{question}{rubric}\n\nPAPER:\n{paper}"
-    return judge(client, _SYSTEM, user, _SCHEMA)
+    return _SYSTEM, f"QUESTION:\n{question}{rubric}\n\nPAPER:\n{paper}"
 
 
-def score(client, question, subpoints, retrieved):
-    """Judge each retrieved paper for topical relevance. Returns the relevance block."""
-    judged = []
-    for a in retrieved:
-        v = _judge_paper(client, question, subpoints, a)
-        judged.append({
-            "pmid": str(a.get("pmid")),
-            "relevant": bool(v.get("relevant")),
-            "reasoning": v.get("reasoning", ""),
-        })
+def parse_paper(inp):
+    """Turn a relevance tool-result into {relevant:bool, reasoning:str}."""
+    inp = inp or {}
+    return {"relevant": bool(inp.get("relevant")), "reasoning": inp.get("reasoning", "")}
+
+
+def assemble(judged):
+    """Build the relevance block from a list of {pmid, relevant, reasoning} verdicts."""
     n = len(judged)
     n_rel = sum(1 for j in judged if j["relevant"])
     return {
@@ -60,3 +58,18 @@ def score(client, question, subpoints, retrieved):
         "precision": (n_rel / n) if n else None,
         "hit": n_rel >= 1,
     }
+
+
+def _judge_paper(client, question, subpoints, article):
+    """Sync: judge one paper, returning {relevant, reasoning}. (judge_trust uses this.)"""
+    system, user = build_paper(question, subpoints, article)
+    return parse_paper(judge(client, system, user, SCHEMA))
+
+
+def score(client, question, subpoints, retrieved):
+    """Judge each retrieved paper for topical relevance. Returns the relevance block."""
+    judged = []
+    for a in retrieved:
+        v = _judge_paper(client, question, subpoints, a)
+        judged.append({"pmid": str(a.get("pmid")), **v})
+    return assemble(judged)

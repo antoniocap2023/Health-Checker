@@ -15,7 +15,7 @@ and does NOT assert a substantive medical conclusion.
 question (even if hedged or caveated).
 Give a one-sentence reason."""
 
-_SCHEMA = {
+SCHEMA = {
     "type": "object",
     "properties": {
         "abstained": {"type": "boolean"},
@@ -25,7 +25,18 @@ _SCHEMA = {
 }
 
 
+def build(answer):
+    """The (system, user) prompt pair for classifying one answer."""
+    return _SYSTEM, f"ANSWER:\n{answer}"
+
+
+def parse(inp):
+    """Turn an abstention tool-result into {abstained:bool, reasoning:str}."""
+    inp = inp or {}
+    return {"abstained": bool(inp.get("abstained")), "reasoning": inp.get("reasoning", "")}
+
+
 def score(client, answer):
     """Return {abstained:bool, reasoning:str} for the answer."""
-    result = judge(client, _SYSTEM, f"ANSWER:\n{answer}", _SCHEMA)
-    return {"abstained": bool(result.get("abstained")), "reasoning": result.get("reasoning", "")}
+    system, user = build(answer)
+    return parse(judge(client, system, user, SCHEMA))

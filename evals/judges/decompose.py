@@ -19,7 +19,7 @@ no citation near it, return an empty list for it.
 with no factual content, and pure restatements of the question.
 - Return the claims in the order they appear."""
 
-_SCHEMA = {
+SCHEMA = {
     "type": "object",
     "properties": {
         "claims": {
@@ -41,13 +41,31 @@ _SCHEMA = {
     "required": ["claims"],
 }
 
+# Long answers truncate to zero claims at the default judge max_tokens, so the
+# decomposer gets its own (larger) budget — shared by the sync and batch paths.
+MAX_TOKENS = settings.eval_decompose_max_tokens
 
-def decompose(client, answer):
-    """Return a list of {"claim": str, "cited_pmids": [str]} for the answer."""
-    result = judge(client, _SYSTEM, f"ANSWER:\n{answer}", _SCHEMA,
-                   max_tokens=settings.eval_decompose_max_tokens)
-    claims = result.get("claims", [])
+
+def build(answer):
+    """The (system, user) prompt pair for decomposing one answer."""
+    return _SYSTEM, f"ANSWER:\n{answer}"
+
+
+def parse(inp):
+    """Turn a decompose tool-result into a list of {"claim", "cited_pmids":[str]}.
+
+    Tolerates a None input (e.g. a failed/expired batch request) → no claims.
+    """
+    if not inp:
+        return []
+    claims = inp.get("claims", [])
     # Normalize PMIDs to strings of digits.
     for c in claims:
         c["cited_pmids"] = [str(p) for p in c.get("cited_pmids", []) if str(p).isdigit()]
     return claims
+
+
+def decompose(client, answer):
+    """Return a list of {"claim": str, "cited_pmids": [str]} for the answer."""
+    system, user = build(answer)
+    return parse(judge(client, system, user, SCHEMA, max_tokens=MAX_TOKENS))

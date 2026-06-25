@@ -3,7 +3,7 @@ import _pathsetup  # noqa: F401  -- backend on path
 
 from types import SimpleNamespace
 
-from scorecard import score_record
+from scorecard import assemble_record, score_record
 
 
 class _FakeMsgs:
@@ -66,3 +66,38 @@ def test_abstain_row_scorecard():
     assert card["faithfulness"] is None
     assert card["thoroughness"] is None
     assert card["validity"]["ok"] is True
+
+
+def test_assemble_record_matches_sequential():
+    """The batched assembly produces the same card as the sequential path given the
+    same (canned) judge outputs."""
+    record = {
+        "repeat": 0,
+        "messages": [{"role": "user", "content": "q"},
+                     {"role": "assistant", "content": "X reduces Y (PMID: 111)."}],
+        "retrieved": [{"pmid": "111", "title": "T", "abstract": "A"}],
+        "cited_pmids": ["111"],
+    }
+    gold = {"question_id": "q1", "question": "Does X reduce Y?", "type": "factual", "split": "dev",
+            "expected_behavior": "answer", "gold_pmids": ["111"], "subpoints": ["a", "b"]}
+
+    # Same canned outputs the sequential test feeds, but as de-keyed batch results.
+    seq_client = _client([
+        {"abstained": False, "reasoning": "makes claims"},
+        {"relevant": True, "reasoning": "on topic"},
+        {"claims": [{"claim": "X reduces Y", "cited_pmids": ["111"]}]},
+        {"supported": True, "reasoning": "matches"},
+        {"results": [{"index": 1, "covered": True}, {"index": 2, "covered": False}]},
+    ])
+    seq = score_record(record, gold, seq_client)
+
+    parts = {
+        "abstention": {"abstained": False, "reasoning": "makes claims"},
+        "relevance": [{"relevant": True, "reasoning": "on topic"}],
+        "decompose": {"claims": [{"claim": "X reduces Y", "cited_pmids": ["111"]}]},
+        "faithfulness": [{"supported": True, "reasoning": "matches"}],
+        "thoroughness": {"results": [{"index": 1, "covered": True}, {"index": 2, "covered": False}]},
+    }
+    batched = assemble_record(record, gold, parts)
+
+    assert batched == seq

@@ -75,3 +75,23 @@ class ConversationStore:
         eval reader uses this; `get` stays transcript-only for the chat frontend."""
         resp = self._table.get_item(Key={"conversation_id": conversation_id})
         return resp.get("Item")
+
+    def items_by(self, attr, value):
+        """Return every full item whose `attr` equals `value` (paginated scan).
+
+        Generic helper used by the eval reader to pull all records of one run
+        (`items_by("run_id", ...)`). A scan reads the whole table and filters
+        server-side, which is fine for the low-volume eval table; if it ever grows,
+        add a GSI on the attribute and switch this to a query.
+        """
+        from boto3.dynamodb.conditions import Attr
+
+        items = []
+        kwargs = {"FilterExpression": Attr(attr).eq(value)}
+        while True:
+            resp = self._table.scan(**kwargs)
+            items.extend(resp.get("Items", []))
+            start = resp.get("LastEvaluatedKey")
+            if not start:
+                return items
+            kwargs["ExclusiveStartKey"] = start

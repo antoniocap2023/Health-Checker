@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     # data never mixes with real user conversations. The eval harness points a
     # ConversationStore at this table (the constructor takes a table_name override).
     eval_dynamodb_table_name: str = "health-checker-eval-conversations"
+    # Model + token ceiling for the eval JUDGES (faithfulness, thoroughness,
+    # abstention, claim decomposition). Run at temperature 0 for low judge noise;
+    # validated against hand labels in Phase 5.
+    eval_judge_model: str = "claude-sonnet-4-6"
+    eval_judge_max_tokens: int = 1024
 
     @property
     def ncbi_rate_limit(self) -> int:

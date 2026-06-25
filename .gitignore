@@ -9,5 +9,8 @@ backend/.env
 frontend/node_modules/
 frontend/dist/
 
+# Eval run results (regenerable cache; keep the dir, not the dumps)
+evals/results/*.json
+
 # Misc
 .DS_Store

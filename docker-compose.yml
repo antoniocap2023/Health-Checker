@@ -1,0 +1,35 @@
+# Run the whole app locally with one command:   docker compose up --build
+# Compose builds both images and starts both containers on a shared private
+# network, where each service is reachable by its NAME — so the frontend's nginx
+# reaches the backend at "http://backend:8000" (see frontend/nginx.conf).
+
+services:
+  backend:
+    build: ./backend
+    # Inject secrets + config as environment variables at RUN time (never baked
+    # into the image). Pulled from backend/.env: ANTHROPIC_API_KEY, NCBI_API_KEY,
+    # AWS_PROFILE=personal, AWS_REGION, DYNAMODB_TABLE_NAME, etc.
+    env_file:
+      - ./backend/.env
+    # Mount your AWS credentials read-only so boto3 (DynamoDB) can use the
+    # AWS_PROFILE named in .env. ${HOME} expands on the host; the container user is
+    # `appuser`, whose home is /home/appuser, where boto3 looks for ~/.aws. Creds
+    # are never copied into the image — only mounted at run time. On AWS this mount
+    # goes away and the task's IAM role provides credentials instead.
+    volumes:
+      - ${HOME}/.aws:/home/appuser/.aws:ro
+    # Publish 8000 to the host ONLY for local convenience (e.g. curl /health
+    # directly). The frontend reaches the backend over the internal network and
+    # doesn't need this; on AWS the backend won't be publicly exposed this way.
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    # The app opens at http://localhost:8080 (host) -> port 80 (nginx in container).
+    ports:
+      - "8080:80"
+    # Start the backend container first, so Docker DNS can resolve "backend"
+    # when nginx loads its config.
+    depends_on:
+      - backend

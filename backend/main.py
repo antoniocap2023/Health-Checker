@@ -21,11 +21,12 @@ import uuid
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 import agent
+import storage
 from config import settings
 from schemas import ChatRequest
 
@@ -38,6 +39,10 @@ load_dotenv()
 # Owned here and injected into the agent loop so that module stays import-clean
 # and tests can swap in a fake by patching `main.client`.
 client = Anthropic()
+
+# Conversation persistence (DynamoDB). One store for the whole app; tests patch
+# `main.store` with an in-memory fake so they never touch real AWS.
+store = storage.ConversationStore()
 
 # Configure logging once, at startup. The root logger stays at WARNING so
 # third-party libraries (anthropic, httpx, ...) only surface real problems, while
@@ -60,7 +65,28 @@ app.add_middleware(
     allow_origins=settings.cors_allow_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Let the browser's JS read the conversation id we return on /api/chat. (Custom
+    # response headers are hidden from cross-origin fetch unless explicitly exposed.)
+    expose_headers=["X-Conversation-Id"],
 )
+
+
+@app.get("/health")
+def health():
+    """Liveness check for containers and load balancers. Deliberately cheap and
+    dependency-free (no Claude or NCBI calls), so an orchestrator like ECS can poll
+    it every few seconds to decide whether this instance is healthy."""
+    return {"status": "ok"}
+
+
+def _save(conversation_id, messages, log):
+    """Persist a conversation, best-effort: a storage failure is logged, never raised
+    — persistence must not break the chat for the user."""
+    try:
+        store.save(conversation_id, messages)
+        log.info("saved conversation %s (%d msgs)", conversation_id, len(messages))
+    except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+        log.exception("failed to persist conversation %s: %s", conversation_id, exc)
 
 
 @app.post("/api/chat")
@@ -68,16 +94,41 @@ def chat(request: ChatRequest):
     # Convert our Message objects into the plain dicts the SDK expects.
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
 
-    # Short id to tag every log line for this conversation; passed down so
-    # pubmed.py's HTTP-level logs share the same tag.
+    # Continue the given conversation, or start a new one. The id is handed back to
+    # the client in the X-Conversation-Id header so it can keep sending it (and
+    # reload the conversation after a refresh).
+    conversation_id = request.conversation_id or uuid.uuid4().hex
+
+    # Short id to tag every log line for this request; passed down so pubmed.py's
+    # HTTP-level logs share the same tag.
     request_id = uuid.uuid4().hex[:8]
     log = agent.logger_for(request_id)
 
     last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-    log.info("REQUEST history=%d msgs, last_user=%r", len(messages), last_user[:200])
+    log.info("REQUEST conversation_id=%s history=%d msgs, last_user=%r",
+             conversation_id, len(messages), last_user[:200])
+
+    # Save #1 (on arrival): persist the incoming transcript BEFORE streaming, so a
+    # mid-stream disconnect can't lose the user's question. Save #2 (which adds the
+    # answer) runs via on_complete when the stream finishes normally — see agent.py.
+    _save(conversation_id, messages, log)
+
+    def on_complete(final_messages):
+        _save(conversation_id, final_messages, log)
 
     # StreamingResponse forwards each yielded line to the browser as it arrives.
-    return StreamingResponse(
-        agent.run_chat_stream(messages, client, request_id, log),
+    response = StreamingResponse(
+        agent.run_chat_stream(messages, client, request_id, log, on_complete=on_complete),
         media_type="application/x-ndjson",
     )
+    response.headers["X-Conversation-Id"] = conversation_id
+    return response
+
+
+@app.get("/api/conversations/{conversation_id}")
+def get_conversation(conversation_id: str):
+    """Load a saved conversation so the frontend can resume it after a refresh."""
+    messages = store.get(conversation_id)
+    if messages is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return {"conversation_id": conversation_id, "messages": messages}

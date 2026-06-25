@@ -1,0 +1,7 @@
+# Don't send these to the build. node_modules and dist are rebuilt inside the
+# image (by `npm ci` and `npm run build`), so copying local copies would be wasteful
+# and could even pull in host-specific or stale artifacts.
+node_modules
+dist
+.dockerignore
+Dockerfile

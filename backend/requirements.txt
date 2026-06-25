@@ -1,9 +1,10 @@
+# Runtime dependencies — what the app needs to SERVE requests. These are the ONLY
+# packages installed into the Docker image. Dev/test tooling lives in
+# requirements-dev.txt so it never bloats (or widens the attack surface of) the
+# production image.
 fastapi
 uvicorn[standard]
 anthropic
 python-dotenv
 pydantic-settings   # typed configuration layer (config.py) — reads env vars / .env
-
-# Testing (only needed to run `pytest`, not to run the app itself)
-pytest          # the test runner: discovers tests/test_*.py and test_* functions
-httpx           # required by FastAPI's TestClient to call the app in-process
+boto3               # AWS SDK — DynamoDB conversation storage (storage.py)

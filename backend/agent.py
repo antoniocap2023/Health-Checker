@@ -44,11 +44,16 @@ def _event(**payload):
     return json.dumps(payload) + "\n"
 
 
-def run_chat_stream(messages, client, request_id, log):
+def run_chat_stream(messages, client, request_id, log, on_complete=None):
     """Generator yielding NDJSON lines for one chat request.
 
     `messages` is the conversation as a list of {role, content} dicts; `client` is
     the (injected) Anthropic client; `request_id`/`log` tag this request's output.
+    `on_complete`, if given, is called once with the final transcript (the incoming
+    messages plus the assistant's answer) when the stream finishes NORMALLY — the
+    hook main.py uses to persist the conversation. It is NOT called if the client
+    disconnects mid-stream (the generator is closed) or an error aborts the turn,
+    so a half-finished answer is never saved.
 
     Agentic loop: stream each assistant turn as NDJSON events. If a turn ends by
     calling a tool, run it, feed the result back, and continue. The typical flow
@@ -58,6 +63,12 @@ def run_chat_stream(messages, client, request_id, log):
     """
     # Give the model today's actual date so recency filters use the real year.
     system_prompt = build_system_prompt(date.today())
+
+    # Snapshot the clean incoming transcript (the loop appends tool_use/tool_result
+    # blocks to `messages`, which we don't persist) and collect the assistant's
+    # streamed text across all turns, for the final saved answer.
+    original_messages = list(messages)
+    answer_parts = []
 
     calls_used = 0
     turn = 0
@@ -94,6 +105,7 @@ def run_chat_stream(messages, client, request_id, log):
 
             # Log how this turn ended: stop reason, token usage, text length.
             answer = "".join(turn_text)
+            answer_parts.extend(turn_text)
             usage = final.usage
             # cache_read = tokens served from cache this turn (~0.1x price);
             # cache_write = tokens written to cache this turn (~1.25x price);
@@ -172,3 +184,15 @@ def run_chat_stream(messages, client, request_id, log):
         return
 
     log.info("DONE turns=%d searches=%d", turn, calls_used)
+
+    # Stream finished normally → hand the final transcript to the persistence hook
+    # (main.py's Save #2). Best-effort: a save failure must never reach the user.
+    if on_complete is not None:
+        answer = "".join(answer_parts)
+        final_messages = original_messages + (
+            [{"role": "assistant", "content": answer}] if answer else []
+        )
+        try:
+            on_complete(final_messages)
+        except Exception as exc:  # noqa: BLE001 - persistence must never break the response
+            log.exception("on_complete (persist) failed: %s", exc)

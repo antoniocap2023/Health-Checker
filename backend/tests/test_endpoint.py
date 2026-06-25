@@ -88,11 +88,81 @@ def client():
     return TestClient(main.app)
 
 
+class _FakeStore:
+    """In-memory stand-in for the DynamoDB store, so endpoint tests never hit AWS."""
+
+    def __init__(self):
+        self.saved = {}
+
+    def save(self, conversation_id, messages):
+        self.saved[conversation_id] = messages
+
+    def get(self, conversation_id):
+        return self.saved.get(conversation_id)
+
+
+@pytest.fixture(autouse=True)
+def fake_store(monkeypatch):
+    """Swap main.store for an in-memory fake for EVERY test here — the chat endpoint
+    now persists on each request, and tests must never write to real DynamoDB."""
+    fake = _FakeStore()
+    monkeypatch.setattr(main, "store", fake)
+    return fake
+
+
 def _post(client, text="hello"):
     return client.post("/api/chat", json={"messages": [{"role": "user", "content": text}]})
 
 
 # ---- Tests -----------------------------------------------------------------
+
+def test_health_check_returns_ok(client):
+    """The /health liveness endpoint responds 200 without touching Claude/NCBI."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_chat_issues_conversation_id_and_persists(monkeypatch, client, fake_store):
+    """A chat returns an X-Conversation-Id header and persists the transcript —
+    ending with the assistant's answer (Save #2 ran when the stream completed)."""
+    fake = _FakeMessages([(["Hi ", "there!"], _final("end_turn", content=[]))])
+    monkeypatch.setattr(main.client, "messages", fake)
+
+    response = _post(client, "hello")
+
+    cid = response.headers.get("X-Conversation-Id")
+    assert cid, "expected an X-Conversation-Id response header"
+    assert cid in fake_store.saved
+    saved = fake_store.saved[cid]
+    assert saved[0] == {"role": "user", "content": "hello"}
+    assert saved[-1] == {"role": "assistant", "content": "Hi there!"}
+
+
+def test_chat_reuses_supplied_conversation_id(monkeypatch, client, fake_store):
+    """When the client sends a conversation_id, the server keeps it (no new id)."""
+    fake = _FakeMessages([(["ok"], _final("end_turn", content=[]))])
+    monkeypatch.setattr(main.client, "messages", fake)
+
+    response = client.post("/api/chat", json={
+        "messages": [{"role": "user", "content": "hi"}],
+        "conversation_id": "fixed-123",
+    })
+
+    assert response.headers.get("X-Conversation-Id") == "fixed-123"
+    assert "fixed-123" in fake_store.saved
+
+
+def test_get_conversation_returns_saved_messages(client, fake_store):
+    """GET /api/conversations/{id} returns stored messages, or 404 when unknown."""
+    fake_store.saved["abc"] = [{"role": "user", "content": "hi"}]
+    ok = client.get("/api/conversations/abc")
+    assert ok.status_code == 200
+    assert ok.json() == {"conversation_id": "abc", "messages": [{"role": "user", "content": "hi"}]}
+
+    missing = client.get("/api/conversations/nope")
+    assert missing.status_code == 404
+
 
 def test_plain_text_turn_streams_text(monkeypatch, client):
     """A non-tool turn just streams text events and finishes."""

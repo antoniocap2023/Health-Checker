@@ -1,0 +1,25 @@
+# Files NOT to send to the Docker build (keeps the image small AND keeps secrets
+# out). Anything matched here is invisible to `COPY . .` in the Dockerfile.
+
+# Python virtualenv and bytecode — the image installs its own deps fresh.
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Secrets — injected at RUN time via env vars, never baked into the image.
+.env
+.env.example
+
+# Test-only files; the runtime image never runs pytest.
+tests/
+conftest.py
+pytest.ini
+.pytest_cache/
+requirements-dev.txt
+
+# Build/VCS noise that doesn't belong in the image.
+.git/
+.gitignore
+Dockerfile
+.dockerignore

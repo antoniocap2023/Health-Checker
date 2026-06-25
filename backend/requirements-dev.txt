@@ -1,0 +1,9 @@
+# Dev/test dependencies. Install locally with:  pip install -r requirements-dev.txt
+# The "-r requirements.txt" line pulls in everything the app needs at runtime, then
+# adds the test-only tooling on top. The Docker image installs requirements.txt only,
+# so pytest/httpx never ship to production.
+-r requirements.txt
+
+pytest          # the test runner: discovers tests/test_*.py and test_* functions
+httpx           # required by FastAPI's TestClient to call the app in-process
+moto[dynamodb]  # mocks DynamoDB in tests so they never touch real AWS

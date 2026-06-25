@@ -14,3 +14,7 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[Message]
+    # The conversation this belongs to. Absent on the first message of a new chat —
+    # the server then generates one and returns it via the X-Conversation-Id response
+    # header; the client sends it back on later messages to append to the same convo.
+    conversation_id: str | None = None

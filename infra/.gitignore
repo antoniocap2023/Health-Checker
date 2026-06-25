@@ -1,0 +1,5 @@
+# CDK app's Python venv and synth output — never committed.
+.venv/
+cdk.out/
+__pycache__/
+*.pyc

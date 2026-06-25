@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-// Where our FastAPI backend is running.
-const API_URL = "http://localhost:8000/api/chat";
+// Relative path — we ask whoever served this page for "/api/chat", and a reverse
+// proxy routes it to the backend. In production that proxy is nginx (see
+// frontend/nginx.conf); in local `npm run dev` it's Vite's dev proxy (see
+// vite.config.js). Either way the browser never needs the backend's address, so
+// this one URL works unchanged on a laptop, in Docker, and on AWS.
+const API_URL = "/api/chat";
+
+// localStorage key where we remember the current conversation's id, so a refresh
+// (or coming back later) resumes the same conversation instead of starting over.
+const CONVERSATION_KEY = "health-checker-conversation-id";
 
 // The model replies in Markdown, but we render plain text, so the raw markers
 // would show literally. Strip the few it uses: **bold**, ## headings, and the
@@ -42,6 +50,33 @@ export default function App() {
   const [input, setInput] = useState("");
   // True while we're waiting for / receiving a reply (disables the send button).
   const [loading, setLoading] = useState(false);
+
+  // The conversation we're in, remembered in localStorage. null until the first
+  // reply, when the backend issues an id and returns it in the response header.
+  const [conversationId, setConversationId] = useState(() =>
+    localStorage.getItem(CONVERSATION_KEY)
+  );
+
+  // On first load, if we already have a conversation id, fetch its saved messages
+  // so the chat resumes where it left off — the visible payoff of persistence.
+  useEffect(() => {
+    if (!conversationId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/conversations/${conversationId}`);
+        if (!res.ok) return; // unknown id / backend down — just start fresh
+        const data = await res.json();
+        if (Array.isArray(data.messages) && data.messages.length) {
+          setMessages(data.messages);
+        }
+      } catch {
+        /* offline — start empty */
+      }
+    })();
+    // Run once on mount only; we deliberately don't re-run when conversationId
+    // changes mid-session (that would overwrite the live chat with the saved copy).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function sendMessage(e) {
     e.preventDefault(); // stop the form from reloading the page
@@ -127,8 +162,16 @@ export default function App() {
       const response = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: history, conversation_id: conversationId }),
       });
+
+      // The backend issues (or echoes) the conversation id in a header; remember it
+      // so later messages append to the same conversation and a refresh resumes it.
+      const newId = response.headers.get("X-Conversation-Id");
+      if (newId && newId !== conversationId) {
+        setConversationId(newId);
+        localStorage.setItem(CONVERSATION_KEY, newId);
+      }
 
       // Read the stream and split it into whole JSON lines, buffering whatever
       // partial line is left at the end of each chunk for the next read.
@@ -170,6 +213,16 @@ export default function App() {
     }
   }
 
+  // Reset to a blank conversation: clear the chat and forget the id, so the next
+  // message starts a fresh conversation (the backend issues a new id for it; the
+  // old conversation stays saved in DynamoDB).
+  function startNewConversation() {
+    setMessages([]);
+    setConversationId(null);
+    localStorage.removeItem(CONVERSATION_KEY);
+    setInput("");
+  }
+
   // Show a "working" indicator while we wait for the next bit of assistant text
   // (before the first token, and in the gap after a search before the answer).
   const last = messages[messages.length - 1];
@@ -177,7 +230,17 @@ export default function App() {
 
   return (
     <div className="app">
-      <h1>Health Checker</h1>
+      <header className="app-header">
+        <h1>Health Checker</h1>
+        <button
+          type="button"
+          className="new-chat"
+          onClick={startNewConversation}
+          disabled={loading || messages.length === 0}
+        >
+          + New chat
+        </button>
+      </header>
 
       <div className="messages">
         {messages.length === 0 && (

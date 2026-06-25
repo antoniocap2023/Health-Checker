@@ -66,6 +66,17 @@ class Settings(BaseSettings):
     deep_research_max_tokens: int = 2048   # output ceiling per sub-agent
     deep_research_char_cap: int = 120000   # truncate huge papers before sending
 
+    # ---- Conversation storage (DynamoDB) -----------------------------------
+    # Where conversations are persisted (storage.py). Credentials are NEVER set
+    # here — boto3 resolves them from its standard chain: locally the named profile
+    # in `aws_profile` (set AWS_PROFILE=personal in .env), and on AWS the task's IAM
+    # role (leave aws_profile unset). `dynamodb_endpoint_url` is an unused seam for
+    # pointing at a local DynamoDB later; None means real AWS.
+    aws_region: str = "us-east-1"
+    aws_profile: str | None = None
+    dynamodb_table_name: str = "health-checker-conversations"
+    dynamodb_endpoint_url: str | None = None
+
     @property
     def ncbi_rate_limit(self) -> int:
         """Max requests per window. With an API key NCBI allows ~10/sec; we stay

@@ -23,6 +23,33 @@ h1 {
   text-align: center;
 }
 
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.new-chat {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #2563eb;
+  border-radius: 0.6rem;
+  background: white;
+  color: #2563eb;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.new-chat:hover:not(:disabled) {
+  background: #eef2ff;
+}
+
+.new-chat:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;

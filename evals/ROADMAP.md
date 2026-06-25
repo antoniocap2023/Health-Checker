@@ -20,14 +20,14 @@ Where the eval project is and what's next. Companion to
 | 3 | **The four checks** — validity, relevance (deterministic) + faithfulness, thoroughness, abstention (Sonnet judges, temp 0) | ✅ |
 | 4 | **Aggregation + journal** — metrics, noise floor, conditional scoring, failure attribution; baseline entry | ✅ |
 | — | **Judge trust** — 10/10 trap tests (incl. relevance); gray-zone policies recorded | ✅ |
-| 5 | **Metric hardening** — relevance → topical hit@k + precision (judge; gold demoted to diagnostic); faithfulness excludes unverifiable (no-abstract) citations; decompose token-truncation fix | ✅ (code; re-score pending) |
+| 5 | **Metric hardening** — relevance → topical hit@k + precision (judge; gold demoted to diagnostic); faithfulness title-fallback + excludes only text-less citations; decompose token-truncation fix; judges batchable (`--batch`) | ✅ (re-scored → `baseline-002-rescore`) |
 
 Goal (1) is largely in hand: a working, defensible measurement instrument with a noise floor, dev/test split, and trusted judges.
 
 **What the baselines taught us — three measurement bugs, not agent bugs:** (1) baseline-001: myths mislabeled `abstain` → relabeled to `answer`/refute. (2) baseline-002: relevance via exact gold-PMID match under-counts valid alternatives → switched to a topical relevance judge. (3) baseline-002: faithfulness penalized citations to abstract-less papers, and decompose silently truncated long answers to zero claims → both fixed. The eval keeps catching its *own* flaws before they mislead us — that's the trust story.
 
-## Immediate next: re-score baseline-002 under the hardened metrics
-Re-score the existing baseline-002 records (no agent re-runs — retrieved sets are stored) to see corrected relevance/faithfulness, and journal it as `baseline-002-rescore`. Then (optionally) a fresh `baseline-003` once the dataset grows.
+## Immediate next: ✅ done — re-scored as `baseline-002-rescore`
+Re-scored the stored baseline-002 records under the hardened metrics (no agent re-runs). Result (see `JOURNAL.md`): relevance **0.58 → 0.96–1.00** topical hit@k (old 0.58 preserved as `gold_recall` diagnostic), faithfulness held at **0.92** with **unverifiable-rate 0.00** (q012 0.4 → 1.0 via the title fallback). Confirms baseline-002's weak numbers were measurement artifacts. Next genuine target is **faithfulness**; a fresh `baseline-003` once the dataset grows.
 
 ## What's left
 
@@ -57,7 +57,7 @@ Repeat across stages (relevance → faithfulness → thoroughness). Each logged 
 
 ## Cost optimizations (future)
 
-- **Batch the judges — only once eval runs get frequent.** `check_run`'s judge calls are independent one-shot `messages.create` calls — a clean fit for the **Batches API** (50% off, async, ~1h). *Not worth it yet:* judge cost is ~$2 per run at 12 questions, ~$8–9 at 50 (Sonnet, ~½¢/call), so 50% off saves a dollar or two per run — less than the cost of restructuring `check_run` into submit-batch + poll + out-of-order handling. **The trigger is run *frequency*, not dataset size:** build it when the improvement loop (Phase 8) is re-running the benchmark dozens of times, or the weekly cron is live — cumulative judge volume is where 50% adds up. Discounts only the (cheaper, Sonnet) judge side; the Opus agent loops in `populate` can't be batched.
+- **Batch the judges — ✅ built (`check_run --batch`).** The judge calls now run through the **Batches API** (50% off, async) via a two-phase pipeline (independent calls → faithfulness, which depends on decompose). Sequential stays the **default** (best for `--limit`/dev runs); `--batch` is opt-in and, since a batch can take up to ~1h, must be run in the **background**. Discounts only the (cheaper, Sonnet) judge side; the Opus agent loops in `populate` can't be batched. **Pays off with run *frequency*, not dataset size** — turn it on for the Phase-8 improvement loop / weekly cron, where cumulative judge volume is where 50% adds up.
 - Cheaper levers available now: smaller `N` for routine re-baselines (N=1 for quick checks), dev-only runs during the improvement loop.
 
 ## Known gaps / decisions on record

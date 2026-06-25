@@ -137,3 +137,36 @@ Inspecting baseline-002 showed its weak relevance/faithfulness numbers were **me
 **Judge trust:** re-ran `judge_trust.py` → **10/10** trap tests (added 2 relevance traps; existing faithfulness/thoroughness/abstention still pass). Tests green (33 evals + 63 backend).
 
 **Next:** re-score the baseline-002 records under these v2 metrics (no agent re-runs) → log as `baseline-002-rescore` to show the corrected numbers side-by-side with baseline-002.
+
+
+### Run baseline-002-rescore — 2026-06-25
+
+**Hypothesis / what changed since last run:** re-score of baseline-002 under hardened metrics (topical relevance + title-fallback faithfulness); no agent change
+
+**Config:** model=claude-opus-4-8 · judge=claude-sonnet-4-6 · max_tool_calls=12 · concise_mode=True · N=3 · scope=dev+test · dataset=questions.jsonl @ 8c451b5f
+
+**Results (mean ± spread):**
+
+| stage | dev | test |
+|---|---|---|
+| Validity — fabricated-PMID rate | 0.00 | 0.00 |
+| Validity — uncited-claim rate | 0.13 | 0.02 |
+| Relevance — hit@k (topical) | 0.96 ± 0.06 | 1.00 ± 0.00 |
+| Relevance — precision | 0.78 ± 0.07 | 0.76 ± 0.01 |
+| Relevance — gold recall (diagnostic) | 0.58 | 0.58 |
+| Faithfulness — claim-level rate | 0.92 ± 0.01 | 0.90 ± 0.04 |
+| Faithfulness — unverifiable-citation rate | 0.00 | 0.00 |
+| Thoroughness — sub-point coverage | 0.97 ± 0.00 | 1.00 ± 0.00 |
+| Abstention — false-answer rate | n/a | n/a |
+
+**Judge validation:** 10/10 trap tests pass (see `JUDGE_TRUST.md`; +2 relevance traps); formal agreement / κ is Phase 5.
+
+**Observations:** Same stored records as baseline-002, re-scored under the v2 metrics — so every delta is a measurement correction, not an agent change. Two corrections land as designed:
+- **Relevance 0.58 → 0.96–1.00.** Measured topically (hit@k), the agent retrieves an on-topic paper almost every time; the old 0.58 was exact-gold-PMID overlap under-counting valid alternatives, and is preserved unchanged as the `gold_recall` diagnostic (0.58 ✓). Precision ~0.77 (≈¾ of retrieved papers are on-topic).
+- **Faithfulness 0.92, unverifiable-rate 0.00.** The title-fallback judged the abstract-less citations (warning letters/comments) against their titles instead of dropping them; **q012 went 0.4 → 1.0** across all three repeats with zero unverifiable. Faithfulness held at 0.92 — no longer dragged down by an eval limitation.
+
+Dev failure attribution is now faithfulness (14), relevance (1), 9 ok — and unlike baseline-002 this is a *trustworthy* signal: faithfulness is genuinely the weakest stage, not an artifact.
+
+**Decision:** Confirms the metric-hardening hypothesis — baseline-002's weak relevance/faithfulness were **measurement artifacts, not agent faults**. This re-score is the corrected noise floor going forward; supersedes baseline-002's relevance/faithfulness numbers.
+
+**Next iteration:** With the metrics trustworthy, **faithfulness (~0.92, claim-weighted) is the real first improvement target** → tighten the answering/grounding prompt to keep paraphrases tight to the cited source. In parallel: grow the dataset (restore genuine abstain cases) and do the Phase-5 formal judge validation (κ).

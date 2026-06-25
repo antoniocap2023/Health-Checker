@@ -68,7 +68,10 @@ The faithfulness bar: a claim is fine if it's **accurate enough to what the abst
 - gold **PMIDs** (for relevance),
 - a **sub-point checklist** (makes thoroughness deterministic),
 - a **question type** — `factual | comparative | thin_evidence | adversarial`; thin/adversarial drive the abstention test.
+- an **expected_behavior** label — `answer | abstain` — the explicit abstention target (so it isn't inferred from `type`).
 - a **split** tag — `dev` (~30, optimize against) / `test` (~20, touch only for final numbers).
+
+Lives in `evals/data/questions.jsonl` (schema + curation methodology in `evals/data/README.md`); gold is chosen via an independent PubMed search (`evals/curate/find_candidates.py`), never the agent, and validated by `evals/validate_dataset.py`.
 
 ## Architecture: the conversations DB is the eval's source of record
 

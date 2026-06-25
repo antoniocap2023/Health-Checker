@@ -40,8 +40,8 @@ def _print_summary(report):
         m, c = b["metrics"], b["conditional"]
         print(f"\n[{split}] n={b['n_records']}")
         print(f"  validity_ok={m['validity_ok_rate']}  fabricated={m['fabricated_pmid_rate']}")
-        print(f"  relevance_recall={m['relevance_recall']}  hit_rate={m['relevance_hit_rate']}")
-        print(f"  faithfulness={m['faithfulness_rate']}  | retrieval-ok={c['faithfulness_rate_given_retrieval_ok']}")
+        print(f"  relevance_hit={m['relevance_hit_rate']}  precision={m['relevance_precision']}  gold_recall(diag)={m['relevance_gold_recall']}")
+        print(f"  faithfulness={m['faithfulness_rate']}  | retrieval-ok={c['faithfulness_rate_given_retrieval_ok']}  unverifiable={m['unverifiable_citation_rate']}")
         print(f"  thoroughness={m['thoroughness_coverage']}  uncited={m['uncited_claim_rate']}")
         print(f"  abstention_correct={m['abstention_correct_rate']}  false_answer={m['false_answer_rate']}")
         print(f"  attribution={b['attribution']}")

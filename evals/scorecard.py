@@ -5,9 +5,9 @@ no aggregation (that's Phase 4). Answer rows get all four quality checks plus an
 abstention guard; abstain rows get abstention (headline) + validity, with the
 gold-dependent checks left null.
 """
-from checks.relevance import relevance
+from checks.relevance import relevance as gold_relevance
 from checks.validity import validity
-from judges import abstention, faithfulness, thoroughness
+from judges import abstention, faithfulness, relevance_judge, thoroughness
 
 
 def _answer_text(record):
@@ -36,9 +36,24 @@ def score_record(record, gold_row, client):
     }
 
     if expected == "answer":
-        card["relevance"] = relevance(record, gold_row.get("gold_pmids", []))
+        subpoints = gold_row.get("subpoints", [])
+        rel = relevance_judge.score(client, gold_row.get("question", ""), subpoints,
+                                    record.get("retrieved", []))
+        gold = gold_relevance(record, gold_row.get("gold_pmids", []))
+        card["relevance"] = {
+            # headline: topical, reference-free
+            "hit": rel["hit"],
+            "precision": rel["precision"],
+            "n_retrieved": rel["n_retrieved"],
+            "n_relevant": rel["n_relevant"],
+            "judged": rel["judged"],
+            # demoted diagnostics: exact gold-PMID overlap
+            "gold_recall": gold["recall"],
+            "gold_hit": gold["hit"],
+            "gold_hits": gold["hits"],
+        }
         card["faithfulness"] = faithfulness.score(client, record)
-        card["thoroughness"] = thoroughness.score(client, answer, gold_row.get("subpoints", []))
+        card["thoroughness"] = thoroughness.score(client, answer, subpoints)
     else:
         # No gold to score these against on abstain rows.
         card["relevance"] = None

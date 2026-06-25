@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     # validated against hand labels in Phase 5.
     eval_judge_model: str = "claude-sonnet-4-6"
     eval_judge_max_tokens: int = 1024
+    # Decompose returns a LIST of claims, so its output scales with answer length —
+    # the 1024 default truncates long answers to zero claims. Give it real headroom.
+    eval_decompose_max_tokens: int = 4096
 
     @property
     def ncbi_rate_limit(self) -> int:

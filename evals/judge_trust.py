@@ -22,7 +22,7 @@ import _pathsetup  # noqa: F401,E402  -- backend on path + .env
 
 from anthropic import Anthropic  # noqa: E402
 
-from judges import abstention, decompose, faithfulness, thoroughness  # noqa: E402
+from judges import abstention, decompose, faithfulness, relevance_judge, thoroughness  # noqa: E402
 
 # --- crafted, self-contained source for faithfulness ---
 ABSTRACT = (
@@ -64,7 +64,7 @@ def main():
         (False, "DISTORTED ", "Aspirin started after 16 weeks produces the largest reductions in preeclampsia."),
     ]
     for expected, label, claim in faith_traps:
-        v = faithfulness._judge_claim(client, claim, ["P1"], BY_PMID)
+        v = faithfulness._judge_claim(client, claim, [BY_PMID["P1"]])
         ok = v["supported"] == expected
         total += 1
         passed += ok
@@ -76,9 +76,34 @@ def main():
         ("ROUGHLY HALVES", "Low-dose aspirin roughly halves the risk of preeclampsia."),
         ("DOSE GENERALIZED", "Higher doses of aspirin are more effective at preventing preeclampsia."),
     ]:
-        v = faithfulness._judge_claim(client, claim, ["P1"], BY_PMID)
+        v = faithfulness._judge_claim(client, claim, [BY_PMID["P1"]])
         print(f"[supported={v['supported']}] {label}: {claim}")
         print(f"        -> {v['reasoning'][:200]}")
+
+    # ---------------- RELEVANCE ----------------
+    _hdr("RELEVANCE — trap (is a retrieved paper on-topic for the question?)")
+    REL_Q = "Does low-dose aspirin reduce the risk of preeclampsia in high-risk pregnancies?"
+    REL_SUB = ["effect on preeclampsia incidence", "timing and dose"]
+    rel_traps = [
+        (True,  "ON-TOPIC  ", {"pmid": "R1", "title": "Low-dose aspirin for prevention of preeclampsia: a meta-analysis",
+                               "abstract": "Aspirin significantly reduced preeclampsia in high-risk women."}),
+        (False, "OFF-TOPIC ", {"pmid": "R2", "title": "Statin therapy and LDL cholesterol reduction in adults",
+                               "abstract": "Statins lowered LDL cholesterol across trials."}),
+    ]
+    for expected, label, art in rel_traps:
+        v = relevance_judge._judge_paper(client, REL_Q, REL_SUB, art)
+        ok = v["relevant"] == expected
+        total += 1
+        passed += ok
+        print(f"[{'PASS' if ok else 'FAIL'}] relevant={v['relevant']!s:5} (want {expected!s:5}) {label} {art['title'][:55]}")
+        print(f"        -> {v['reasoning'][:150]}")
+
+    _hdr("RELEVANCE — gray zone (human review)")
+    gray_art = {"pmid": "R3", "title": "Aspirin for primary prevention of cardiovascular disease",
+                "abstract": "Low-dose aspirin and first cardiovascular events in adults."}
+    v = relevance_judge._judge_paper(client, REL_Q, REL_SUB, gray_art)
+    print(f"[relevant={v['relevant']}] SAME-DRUG-DIFFERENT-OUTCOME: {gray_art['title']}")
+    print(f"        -> {v['reasoning'][:200]}")
 
     # ---------------- THOROUGHNESS ----------------
     _hdr("THOROUGHNESS — trap (answer omits 'safety'; expect only safety uncovered)")
@@ -99,6 +124,13 @@ def main():
     total += 1
     passed += ok
     print(f"[{'PASS' if ok else 'FAIL'}] covered={got} coverage={r['coverage']}")
+
+    _hdr("THOROUGHNESS — gray zone (sub-point addressed only in passing)")
+    answer_passing = ANSWER_NO_SAFETY + " Aspirin is widely used and generally considered acceptable."
+    r = thoroughness.score(client, answer_passing, SUBPOINTS)
+    print(f"[coverage={r['coverage']}] does a one-line 'generally acceptable' count as covering 'safety in pregnancy'?")
+    for c in r["covered"]:
+        print(f"     [{'x' if c['covered'] else ' '}] {c['subpoint']}")
 
     # ---------------- ABSTENTION ----------------
     _hdr("ABSTENTION — trap")

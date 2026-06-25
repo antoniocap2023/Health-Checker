@@ -36,9 +36,10 @@ def summarize(cards):
     return {
         "records": len(cards),
         "validity_ok_rate": _mean([1.0 if c["validity"]["ok"] else 0.0 for c in cards]),
-        "relevance_recall": _mean([c["relevance"]["recall"] for c in answer_cards if c["relevance"]]),
         "relevance_hit_rate": _mean([1.0 if c["relevance"]["hit"] else 0.0 for c in answer_cards if c["relevance"]]),
+        "relevance_precision": _mean([c["relevance"]["precision"] for c in answer_cards if c["relevance"]]),
         "faithfulness_rate": _mean([c["faithfulness"]["faithfulness_rate"] for c in answer_cards if c["faithfulness"]]),
+        "unverifiable_citation_rate": _mean([c["faithfulness"]["unverifiable_rate"] for c in answer_cards if c["faithfulness"]]),
         "thoroughness_coverage": _mean([c["thoroughness"]["coverage"] for c in answer_cards if c["thoroughness"]]),
         "abstention_correct_rate": _mean([1.0 if c["abstention"]["correct"] else 0.0 for c in abstain_cards]),
     }

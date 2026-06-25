@@ -33,49 +33,77 @@ def _abstracts_by_pmid(record):
     return {str(a.get("pmid")): a for a in record.get("retrieved", []) if a.get("pmid")}
 
 
-def _judge_claim(client, claim, pmids, by_pmid):
-    available = [by_pmid[p] for p in pmids if p in by_pmid]
-    if not available:
-        # Every cited PMID is fabricated (not in the retrieved set) → nothing to
-        # support the claim. Don't spend a judge call.
-        return {"supported": False,
-                "reasoning": "cited PMID(s) were not in the retrieved set (no abstract to support the claim)"}
+def _has_abstract(article):
+    return bool((article.get("abstract") or "").strip())
+
+
+def _judge_claim(client, claim, articles):
+    """Judge one claim against the cited articles that actually have abstract text."""
     blocks = "\n\n".join(
-        f"PMID {a.get('pmid')} — {a.get('title','')}\n{a.get('abstract','')}" for a in available
+        f"PMID {a.get('pmid')} — {a.get('title','')}\n{a.get('abstract','')}" for a in articles
     )
     user = f"CLAIM:\n{claim}\n\nABSTRACT(S):\n{blocks}"
     return judge(client, _SYSTEM, user, _SCHEMA)
 
 
 def score(client, record):
-    """Decompose the answer and judge each cited claim. Returns the faithfulness block."""
+    """Decompose the answer and judge each cited claim. Returns the faithfulness block.
+
+    Three buckets per cited claim:
+      - verifiable: cited a retrieved paper WITH an abstract → judged supported/not.
+      - unverifiable: cited a retrieved paper that has NO abstract (warning letters,
+        comments) — we can't machine-check it, so it does NOT count against
+        faithfulness; reported separately as `unverifiable_rate`.
+      - fabricated: cited a PMID not in the retrieved set → counts as unsupported.
+    """
     answer = record["messages"][-1]["content"] if record.get("messages") else ""
     by_pmid = _abstracts_by_pmid(record)
     claims = decompose(client, answer)
 
-    scored, uncited = [], []
+    scored, uncited, unverifiable = [], [], []
     for c in claims:
         pmids = c.get("cited_pmids", [])
         if not pmids:
             uncited.append(c["claim"])
             continue
-        verdict = _judge_claim(client, c["claim"], pmids, by_pmid)
-        scored.append({
-            "claim": c["claim"],
-            "cited_pmids": pmids,
-            "supported": bool(verdict.get("supported")),
-            "reasoning": verdict.get("reasoning", ""),
-        })
+        with_abstract = [by_pmid[p] for p in pmids if p in by_pmid and _has_abstract(by_pmid[p])]
+        in_retrieved = [p for p in pmids if p in by_pmid]
+        if with_abstract:
+            verdict = _judge_claim(client, c["claim"], with_abstract)
+            scored.append({
+                "claim": c["claim"], "cited_pmids": pmids,
+                "supported": bool(verdict.get("supported")),
+                "reasoning": verdict.get("reasoning", ""),
+            })
+        elif in_retrieved:
+            # Cited a real retrieved paper, but it has no abstract to check against —
+            # don't penalize faithfulness; surface separately.
+            unverifiable.append({
+                "claim": c["claim"], "cited_pmids": pmids,
+                "reason": "cited paper(s) retrieved but have no abstract to verify against",
+            })
+        else:
+            # Cited PMID(s) not in the retrieved set → fabricated → unsupported.
+            scored.append({
+                "claim": c["claim"], "cited_pmids": pmids, "supported": False,
+                "reasoning": "cited PMID(s) were not in the retrieved set",
+            })
 
-    n_cited_claims = len(scored)
-    n_supported = sum(1 for s in scored if s["supported"])
     n_claims = len(claims)
+    n_verifiable = len(scored)
+    n_supported = sum(1 for s in scored if s["supported"])
+    n_unverifiable = len(unverifiable)
+    n_cited_claims = n_verifiable + n_unverifiable
     return {
         "claims": scored,
+        "unverifiable_claims": unverifiable,
+        "uncited_claims": uncited,
         "n_claims": n_claims,
         "n_cited_claims": n_cited_claims,
+        "n_verifiable": n_verifiable,
         "n_supported": n_supported,
-        "faithfulness_rate": (n_supported / n_cited_claims) if n_cited_claims else None,
-        "uncited_claims": uncited,
+        "n_unverifiable": n_unverifiable,
+        "faithfulness_rate": (n_supported / n_verifiable) if n_verifiable else None,
+        "unverifiable_rate": (n_unverifiable / n_cited_claims) if n_cited_claims else 0.0,
         "uncited_rate": (len(uncited) / n_claims) if n_claims else 0.0,
     }

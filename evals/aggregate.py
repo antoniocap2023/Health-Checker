@@ -13,7 +13,7 @@ from statistics import mean, pstdev
 THOROUGHNESS_PASS = 0.8
 
 _NOISE_METRICS = (
-    "validity_ok_rate", "relevance_recall", "relevance_hit_rate",
+    "validity_ok_rate", "relevance_hit_rate", "relevance_precision",
     "faithfulness_rate", "thoroughness_coverage",
 )
 
@@ -36,8 +36,9 @@ def _metrics(cards):
     ans = _answer(cards)
     abst = _abstain(cards)
 
-    # Faithfulness is claim-weighted: total supported / total cited claims.
-    cited = sum(c["faithfulness"]["n_cited_claims"] for c in ans if c.get("faithfulness"))
+    # Faithfulness is claim-weighted over VERIFIABLE cited claims (unverifiable —
+    # cited paper has no abstract — is excluded and reported separately).
+    verifiable = sum(c["faithfulness"]["n_verifiable"] for c in ans if c.get("faithfulness"))
     supported = sum(c["faithfulness"]["n_supported"] for c in ans if c.get("faithfulness"))
 
     return {
@@ -45,9 +46,13 @@ def _metrics(cards):
         "n_abstain": len(abst),
         "validity_ok_rate": _mean([1.0 if c["validity"]["ok"] else 0.0 for c in cards]),
         "fabricated_pmid_rate": _mean([c["validity"]["fabricated_rate"] for c in cards]),
-        "relevance_recall": _mean([c["relevance"]["recall"] for c in ans if c.get("relevance")]),
+        # Relevance headline: topical (judge). Gold-overlap kept as a diagnostic.
         "relevance_hit_rate": _mean([1.0 if c["relevance"]["hit"] else 0.0 for c in ans if c.get("relevance")]),
-        "faithfulness_rate": (supported / cited) if cited else None,
+        "relevance_precision": _mean([c["relevance"]["precision"] for c in ans if c.get("relevance")]),
+        "relevance_gold_recall": _mean([c["relevance"]["gold_recall"] for c in ans
+                                        if c.get("relevance") and c["relevance"].get("gold_recall") is not None]),
+        "faithfulness_rate": (supported / verifiable) if verifiable else None,
+        "unverifiable_citation_rate": _mean([c["faithfulness"]["unverifiable_rate"] for c in ans if c.get("faithfulness")]),
         "uncited_claim_rate": _mean([c["faithfulness"]["uncited_rate"] for c in ans if c.get("faithfulness")]),
         "thoroughness_coverage": _mean([c["thoroughness"]["coverage"] for c in ans if c.get("thoroughness")]),
         "abstention_correct_rate": _mean([1.0 if c["abstention"]["correct"] else 0.0 for c in abst]),
@@ -63,11 +68,11 @@ def _retrieval_ok(card):
 def _conditional(cards):
     """Downstream metrics among answer records that passed retrieval (validity ok & hit)."""
     ok = [c for c in _answer(cards) if _retrieval_ok(c)]
-    cited = sum(c["faithfulness"]["n_cited_claims"] for c in ok if c.get("faithfulness"))
+    verifiable = sum(c["faithfulness"]["n_verifiable"] for c in ok if c.get("faithfulness"))
     supported = sum(c["faithfulness"]["n_supported"] for c in ok if c.get("faithfulness"))
     return {
         "n_retrieval_ok": len(ok),
-        "faithfulness_rate_given_retrieval_ok": (supported / cited) if cited else None,
+        "faithfulness_rate_given_retrieval_ok": (supported / verifiable) if verifiable else None,
         "thoroughness_coverage_given_retrieval_ok": _mean(
             [c["thoroughness"]["coverage"] for c in ok if c.get("thoroughness")]
         ),
@@ -84,7 +89,7 @@ def _earliest_failure(card):
     if rel and not rel["hit"]:
         return "relevance"
     f = card.get("faithfulness")
-    if f and f["n_cited_claims"] > 0 and (f["faithfulness_rate"] or 0) < 1.0:
+    if f and f["n_verifiable"] > 0 and (f["faithfulness_rate"] or 0) < 1.0:
         return "faithfulness"
     t = card.get("thoroughness")
     if t and t["coverage"] is not None and t["coverage"] < THOROUGHNESS_PASS:

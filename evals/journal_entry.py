@@ -12,8 +12,11 @@ _KNOB = {
 _ROWS = [
     ("Validity — fabricated-PMID rate", "fabricated_pmid_rate", None),
     ("Validity — uncited-claim rate", "uncited_claim_rate", None),
-    ("Relevance — recall@k vs gold", "relevance_recall", "relevance_recall"),
+    ("Relevance — hit@k (topical)", "relevance_hit_rate", "relevance_hit_rate"),
+    ("Relevance — precision", "relevance_precision", "relevance_precision"),
+    ("Relevance — gold recall (diagnostic)", "relevance_gold_recall", None),
     ("Faithfulness — claim-level rate", "faithfulness_rate", "faithfulness_rate"),
+    ("Faithfulness — unverifiable-citation rate", "unverifiable_citation_rate", None),
     ("Thoroughness — sub-point coverage", "thoroughness_coverage", "thoroughness_coverage"),
     ("Abstention — false-answer rate", "false_answer_rate", None),
 ]

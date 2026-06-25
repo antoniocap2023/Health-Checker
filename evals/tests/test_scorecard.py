@@ -27,11 +27,12 @@ def test_answer_row_full_scorecard():
         "retrieved": [{"pmid": "111", "title": "T", "abstract": "A"}],
         "cited_pmids": ["111"],
     }
-    gold = {"question_id": "q1", "type": "factual", "split": "dev",
+    gold = {"question_id": "q1", "question": "Does X reduce Y?", "type": "factual", "split": "dev",
             "expected_behavior": "answer", "gold_pmids": ["111"], "subpoints": ["a", "b"]}
-    # Order: abstention, decompose, claim verdict, thoroughness.
+    # Call order: abstention, relevance (1 per retrieved paper), decompose, claim verdict, thoroughness.
     client = _client([
         {"abstained": False, "reasoning": "makes claims"},
+        {"relevant": True, "reasoning": "on topic"},
         {"claims": [{"claim": "X reduces Y", "cited_pmids": ["111"]}]},
         {"supported": True, "reasoning": "matches"},
         {"results": [{"index": 1, "covered": True}, {"index": 2, "covered": False}]},
@@ -40,7 +41,8 @@ def test_answer_row_full_scorecard():
 
     assert card["question_id"] == "q1"
     assert card["validity"]["ok"] is True
-    assert card["relevance"]["recall"] == 1.0 and card["relevance"]["hit"] is True
+    assert card["relevance"]["hit"] is True and card["relevance"]["precision"] == 1.0
+    assert card["relevance"]["gold_recall"] == 1.0  # diagnostic: cited paper is the gold one
     assert card["faithfulness"]["faithfulness_rate"] == 1.0
     assert card["thoroughness"]["coverage"] == 0.5
     assert card["abstention"]["correct"] is True  # expected answer, did not abstain

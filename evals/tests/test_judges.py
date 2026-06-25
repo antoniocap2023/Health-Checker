@@ -5,7 +5,7 @@ import _pathsetup  # noqa: F401  -- backend on path
 
 from types import SimpleNamespace
 
-from judges import abstention, decompose, faithfulness, thoroughness
+from judges import abstention, decompose, faithfulness, relevance_judge, thoroughness
 
 
 class _FakeMsgs:
@@ -35,31 +35,54 @@ def test_decompose_normalizes_pmids():
     assert claims[1]["cited_pmids"] == []
 
 
-def test_faithfulness_aggregates():
+def test_faithfulness_buckets_verifiable_unverifiable_fabricated():
     record = {
         "messages": [{"role": "user", "content": "q"},
-                     {"role": "assistant", "content": "c1 (PMID: 111). c2. c3 (PMID: 999)."}],
-        "retrieved": [{"pmid": "111", "title": "T", "abstract": "A"}],
+                     {"role": "assistant",
+                      "content": "c1 (PMID: 111). c2. c3 (PMID: 999). c4 (PMID: 333)."}],
+        "retrieved": [
+            {"pmid": "111", "title": "T", "abstract": "A"},   # has abstract -> verifiable
+            {"pmid": "333", "title": "warning", "abstract": ""},  # no abstract -> unverifiable
+        ],
     }
-    # decompose returns 3 claims (c1 cited+retrieved, c2 uncited, c3 cited+fabricated);
-    # only c1 reaches the per-claim judge (c3's PMID isn't retrieved → short-circuit).
+    # c1 verifiable (judge it), c2 uncited, c3 fabricated (999 not retrieved -> unsupported, no call),
+    # c4 unverifiable (333 retrieved but no abstract -> no call).
     client = _client([
         {"claims": [
             {"claim": "c1", "cited_pmids": ["111"]},
             {"claim": "c2", "cited_pmids": []},
             {"claim": "c3", "cited_pmids": ["999"]},
+            {"claim": "c4", "cited_pmids": ["333"]},
         ]},
-        {"supported": True, "reasoning": "matches abstract"},
+        {"supported": True, "reasoning": "matches abstract"},   # only c1 reaches the judge
     ])
     r = faithfulness.score(client, record)
-    assert r["n_claims"] == 3
-    assert r["n_cited_claims"] == 2          # c1 + c3
-    assert r["n_supported"] == 1             # c1 true; c3 fabricated → false
-    assert r["faithfulness_rate"] == 0.5
+    assert r["n_claims"] == 4
+    assert r["n_cited_claims"] == 3          # c1 + c3 + c4 (c2 uncited)
+    assert r["n_verifiable"] == 2            # c1 (supported) + c3 (fabricated->unsupported)
+    assert r["n_supported"] == 1            # only c1
+    assert r["n_unverifiable"] == 1          # c4
+    assert r["faithfulness_rate"] == 0.5     # 1/2 verifiable (unverifiable excluded)
+    assert round(r["unverifiable_rate"], 3) == round(1 / 3, 3)
     assert r["uncited_claims"] == ["c2"]
-    assert round(r["uncited_rate"], 3) == 0.333
-    # Only one per-claim judge call happened (c3 short-circuited).
+    # Only one per-claim judge call (c1); c3/c4 short-circuit, c2 uncited.
     assert len(client.messages.calls) == 2   # decompose + 1 verdict
+
+
+def test_relevance_judge_hit_and_precision():
+    client = _client([
+        {"relevant": True, "reasoning": "on topic"},
+        {"relevant": False, "reasoning": "off topic"},
+    ])
+    r = relevance_judge.score(client, "does X help Y?", ["the effect of X on Y"],
+                              [{"pmid": "1", "title": "X and Y"}, {"pmid": "2", "title": "Z and W"}])
+    assert r["n_retrieved"] == 2 and r["n_relevant"] == 1
+    assert r["precision"] == 0.5 and r["hit"] is True
+
+
+def test_relevance_judge_no_retrieved():
+    r = relevance_judge.score(_client([]), "q", [], [])
+    assert r == {"judged": [], "n_retrieved": 0, "n_relevant": 0, "precision": None, "hit": False}
 
 
 def test_thoroughness_coverage():

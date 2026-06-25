@@ -4,6 +4,7 @@ Shared step for faithfulness (are claims supported?) and the uncited-claim metri
 Grounded by the inline `(PMID: ...)` markers the agent is prompted to write.
 """
 from judges.client import judge
+from config import settings
 
 _SYSTEM = """You break a medical answer into atomic, individually-checkable claims.
 
@@ -43,7 +44,8 @@ _SCHEMA = {
 
 def decompose(client, answer):
     """Return a list of {"claim": str, "cited_pmids": [str]} for the answer."""
-    result = judge(client, _SYSTEM, f"ANSWER:\n{answer}", _SCHEMA)
+    result = judge(client, _SYSTEM, f"ANSWER:\n{answer}", _SCHEMA,
+                   max_tokens=settings.eval_decompose_max_tokens)
     claims = result.get("claims", [])
     # Normalize PMIDs to strings of digits.
     for c in claims:

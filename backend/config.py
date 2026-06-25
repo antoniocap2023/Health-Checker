@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     aws_profile: str | None = None
     dynamodb_table_name: str = "health-checker-conversations"
     dynamodb_endpoint_url: str | None = None
+    # Separate table the eval suite populates with benchmark runs, so synthetic eval
+    # data never mixes with real user conversations. The eval harness points a
+    # ConversationStore at this table (the constructor takes a table_name override).
+    eval_dynamodb_table_name: str = "health-checker-eval-conversations"
 
     @property
     def ncbi_rate_limit(self) -> int:

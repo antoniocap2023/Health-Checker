@@ -79,11 +79,12 @@ def health():
     return {"status": "ok"}
 
 
-def _save(conversation_id, messages, log):
+def _save(conversation_id, messages, log, extra=None):
     """Persist a conversation, best-effort: a storage failure is logged, never raised
-    — persistence must not break the chat for the user."""
+    — persistence must not break the chat for the user. `extra`, when present, is the
+    evidence record (queries/retrieved/cited_pmids) written alongside the transcript."""
     try:
-        store.save(conversation_id, messages)
+        store.save(conversation_id, messages, extra)
         log.info("saved conversation %s (%d msgs)", conversation_id, len(messages))
     except Exception as exc:  # noqa: BLE001 - persistence is best-effort
         log.exception("failed to persist conversation %s: %s", conversation_id, exc)
@@ -113,8 +114,8 @@ def chat(request: ChatRequest):
     # answer) runs via on_complete when the stream finishes normally — see agent.py.
     _save(conversation_id, messages, log)
 
-    def on_complete(final_messages):
-        _save(conversation_id, final_messages, log)
+    def on_complete(final_messages, evidence):
+        _save(conversation_id, final_messages, log, evidence)
 
     # StreamingResponse forwards each yielded line to the browser as it arrives.
     response = StreamingResponse(

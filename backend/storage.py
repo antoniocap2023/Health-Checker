@@ -41,16 +41,27 @@ class ConversationStore:
         session = boto3.Session(profile_name=profile, region_name=region)
         self._table = session.resource("dynamodb", endpoint_url=endpoint_url).Table(table_name)
 
-    def save(self, conversation_id, messages):
+    def save(self, conversation_id, messages, extra=None):
         """Upsert the conversation's messages, stamping `updated_at` and — only on the
-        first write — `created_at` (if_not_exists preserves it across later saves)."""
+        first write — `created_at` (if_not_exists preserves it across later saves).
+
+        `extra`, when given, is a dict of additional top-level attributes to write
+        (the evidence record: queries/retrieved/cited_pmids — and later run_id /
+        question_id for eval runs). Kept generic so new fields need no schema change."""
         now = datetime.now(timezone.utc).isoformat()
+        # ExpressionAttributeNames sidesteps any DynamoDB reserved-word clashes.
+        names = {"#m": "messages", "#u": "updated_at", "#c": "created_at"}
+        values = {":m": messages, ":u": now}
+        sets = ["#m = :m", "#u = :u", "#c = if_not_exists(#c, :u)"]
+        for i, (key, value) in enumerate((extra or {}).items()):
+            names[f"#e{i}"] = key
+            values[f":e{i}"] = value
+            sets.append(f"#e{i} = :e{i}")
         self._table.update_item(
             Key={"conversation_id": conversation_id},
-            UpdateExpression="SET #m = :m, #u = :u, #c = if_not_exists(#c, :u)",
-            # ExpressionAttributeNames sidesteps any DynamoDB reserved-word clashes.
-            ExpressionAttributeNames={"#m": "messages", "#u": "updated_at", "#c": "created_at"},
-            ExpressionAttributeValues={":m": messages, ":u": now},
+            UpdateExpression="SET " + ", ".join(sets),
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
         )
 
     def get(self, conversation_id):
@@ -58,3 +69,9 @@ class ConversationStore:
         resp = self._table.get_item(Key={"conversation_id": conversation_id})
         item = resp.get("Item")
         return item.get("messages") if item else None
+
+    def get_record(self, conversation_id):
+        """Return the full stored item (transcript + evidence record), or None. The
+        eval reader uses this; `get` stays transcript-only for the chat frontend."""
+        resp = self._table.get_item(Key={"conversation_id": conversation_id})
+        return resp.get("Item")

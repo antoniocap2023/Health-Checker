@@ -17,6 +17,7 @@ NDJSON event types this yields (one JSON object per line):
 """
 import json
 import logging
+import re
 from datetime import date
 
 from config import settings
@@ -44,14 +45,26 @@ def _event(**payload):
     return json.dumps(payload) + "\n"
 
 
+# Inline citations look like "(PMID: 40123456)". This is Layer A of the eval's
+# citation check — a deterministic parse of which PMIDs the answer actually cited.
+_PMID_RE = re.compile(r"PMID:\s*(\d+)", re.IGNORECASE)
+
+
+def _cited_pmids(text):
+    """The PMIDs cited in the answer, de-duplicated and in first-seen order."""
+    return list(dict.fromkeys(_PMID_RE.findall(text)))
+
+
 def run_chat_stream(messages, client, request_id, log, on_complete=None):
     """Generator yielding NDJSON lines for one chat request.
 
     `messages` is the conversation as a list of {role, content} dicts; `client` is
     the (injected) Anthropic client; `request_id`/`log` tag this request's output.
-    `on_complete`, if given, is called once with the final transcript (the incoming
-    messages plus the assistant's answer) when the stream finishes NORMALLY — the
-    hook main.py uses to persist the conversation. It is NOT called if the client
+    `on_complete`, if given, is called once as `on_complete(final_messages, evidence)`
+    when the stream finishes NORMALLY — `final_messages` is the incoming messages plus
+    the assistant's answer, and `evidence` is the {queries, retrieved, cited_pmids}
+    record the eval suite scores. It's the hook main.py uses to persist the
+    conversation. It is NOT called if the client
     disconnects mid-stream (the generator is closed) or an error aborts the turn,
     so a half-finished answer is never saved.
 
@@ -69,6 +82,11 @@ def run_chat_stream(messages, client, request_id, log, on_complete=None):
     # streamed text across all turns, for the final saved answer.
     original_messages = list(messages)
     answer_parts = []
+
+    # Evidence gathered across the loop, persisted with the conversation so the
+    # eval suite can score it later: every query issued and every article fetched.
+    queries = []
+    retrieved = []
 
     calls_used = 0
     turn = 0
@@ -172,6 +190,11 @@ def run_chat_stream(messages, client, request_id, log, on_complete=None):
                             yield _event(**payload)
                         else:  # ("result", obj)
                             result_obj = payload
+                    # Let the tool surface any evidence worth persisting (queries
+                    # run, articles fetched). Generic — the loop names no tool.
+                    ev = tool.collect_evidence(block.input, result_obj)
+                    queries.extend(ev.get("queries", []))
+                    retrieved.extend(ev.get("retrieved", []))
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -192,7 +215,14 @@ def run_chat_stream(messages, client, request_id, log, on_complete=None):
         final_messages = original_messages + (
             [{"role": "assistant", "content": answer}] if answer else []
         )
+        # The evidence record: queries issued, articles fetched (deduped by pmid,
+        # first occurrence wins), and the PMIDs the answer actually cited.
+        evidence = {
+            "queries": queries,
+            "retrieved": list({r["pmid"]: r for r in retrieved}.values()),
+            "cited_pmids": _cited_pmids(answer),
+        }
         try:
-            on_complete(final_messages)
+            on_complete(final_messages, evidence)
         except Exception as exc:  # noqa: BLE001 - persistence must never break the response
             log.exception("on_complete (persist) failed: %s", exc)

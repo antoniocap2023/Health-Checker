@@ -55,6 +55,13 @@ class Tool:
     def run(self, tool_input, ctx):
         raise NotImplementedError
 
+    def collect_evidence(self, tool_input, result_obj):
+        """Evidence from one call to persist for later evaluation, as
+        {'queries': [...], 'retrieved': [...]}. Default: nothing. Tools that
+        gather sources (e.g. search_pubmed) override this; the agent loop calls
+        it generically so it never has to name a specific tool."""
+        return {}
+
 
 class SearchPubmedTool(Tool):
     """Search PubMed by relevance and return the top articles with abstracts."""
@@ -157,6 +164,24 @@ class SearchPubmedTool(Tool):
         # INFO stays scannable.
         log.debug("search_pubmed FULL=%s", json.dumps(result, indent=2))
         yield ("result", result)
+
+    def collect_evidence(self, tool_input, result_obj):
+        # An error result (or anything without articles) carries no evidence.
+        if not isinstance(result_obj, dict) or "articles" not in result_obj:
+            return {}
+        return {
+            "queries": [tool_input.get("query", "")],
+            "retrieved": [
+                {
+                    "pmid": a["pmid"],
+                    "title": a.get("title", ""),
+                    "abstract": a.get("abstract", ""),
+                    "year": a.get("year"),
+                    "pub_types": a.get("publication_types", []),
+                }
+                for a in result_obj["articles"]
+            ],
+        }
 
 
 class DeepResearchTool(Tool):

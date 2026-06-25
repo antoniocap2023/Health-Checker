@@ -56,6 +56,30 @@ def test_save_overwrites_messages(store):
     assert got[-1] == {"role": "assistant", "content": "answer"}
 
 
+def test_save_with_extra_persists_evidence_record(store):
+    """`extra` writes the evidence record alongside the transcript; `get` still
+    returns only the messages, while `get_record` returns the whole item."""
+    msgs = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "a (PMID: 111)"}]
+    extra = {
+        "queries": ["aspirin headache"],
+        "retrieved": [{"pmid": "111", "title": "T", "abstract": "A", "year": 2020, "pub_types": []}],
+        "cited_pmids": ["111"],
+    }
+    store.save("c1", msgs, extra)
+
+    assert store.get("c1") == msgs  # frontend path unchanged
+
+    record = store.get_record("c1")
+    assert record["messages"] == msgs
+    assert record["queries"] == ["aspirin headache"]
+    assert record["retrieved"][0]["abstract"] == "A"
+    assert record["cited_pmids"] == ["111"]
+
+
+def test_get_record_missing_returns_none(store):
+    assert store.get_record("does-not-exist") is None
+
+
 def test_created_at_preserved_across_saves(store):
     """created_at is stamped once and preserved; updated_at moves on each save."""
     store.save("c1", [{"role": "user", "content": "a"}])

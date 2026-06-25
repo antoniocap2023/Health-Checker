@@ -93,9 +93,11 @@ class _FakeStore:
 
     def __init__(self):
         self.saved = {}
+        self.extra = {}  # evidence record per conversation (queries/retrieved/cited_pmids)
 
-    def save(self, conversation_id, messages):
+    def save(self, conversation_id, messages, extra=None):
         self.saved[conversation_id] = messages
+        self.extra[conversation_id] = extra
 
     def get(self, conversation_id):
         return self.saved.get(conversation_id)
@@ -179,7 +181,7 @@ def test_plain_text_turn_streams_text(monkeypatch, client):
     assert all(e["type"] == "text" for e in events)
 
 
-def test_tool_use_turn_runs_search_then_answers(monkeypatch, client):
+def test_tool_use_turn_runs_search_then_answers(monkeypatch, client, fake_store):
     """Turn 1 calls the tool; we run the search and turn 2 streams the answer."""
     # Stub the PubMed layer so no network/NCBI traffic happens.
     fake_search = lambda **kwargs: {
@@ -196,7 +198,8 @@ def test_tool_use_turn_runs_search_then_answers(monkeypatch, client):
     ])
     monkeypatch.setattr(main.client, "messages", fake)
 
-    events = _events_from(_post(client, "does aspirin help headaches?"))
+    response = _post(client, "does aspirin help headaches?")
+    events = _events_from(response)
     types = [e["type"] for e in events]
 
     # A search marker was surfaced, the turn boundary was emitted, then the answer.
@@ -210,6 +213,15 @@ def test_tool_use_turn_runs_search_then_answers(monkeypatch, client):
 
     # The loop ran exactly two turns (two stream calls).
     assert len(fake.calls) == 2
+
+    # The evidence record was persisted: the query issued, the article retrieved
+    # (with its abstract), and the PMID the answer cited.
+    cid = response.headers["X-Conversation-Id"]
+    evidence = fake_store.extra[cid]
+    assert evidence["queries"] == ["aspirin headache"]
+    assert [r["pmid"] for r in evidence["retrieved"]] == ["111"]
+    assert evidence["retrieved"][0]["abstract"] == "A"
+    assert evidence["cited_pmids"] == ["111"]
 
 
 def test_system_prompt_includes_todays_date(monkeypatch, client):

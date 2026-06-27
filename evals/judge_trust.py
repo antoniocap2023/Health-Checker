@@ -62,6 +62,9 @@ def main():
         (False, "REVERSED  ", "Low-dose aspirin increases the risk of preeclampsia."),
         (False, "OFF-TOPIC ", "Low-dose aspirin prevents gestational diabetes."),
         (False, "DISTORTED ", "Aspirin started after 16 weeks produces the largest reductions in preeclampsia."),
+        # Policy traps (Step 1): clinical content correct, only bibliographic/rounding differs -> supported.
+        (True,  "ROUNDING  ", "Low-dose aspirin was studied in roughly 21,000 women across the trials."),  # abstract: 20,909
+        (True,  "METADATA-YR", "This 2020 meta-analysis of 45 randomized trials found low-dose aspirin reduced preeclampsia."),  # year not in abstract; ignore it
     ]
     for expected, label, claim in faith_traps:
         v = faithfulness._judge_claim(client, claim, [BY_PMID["P1"]])

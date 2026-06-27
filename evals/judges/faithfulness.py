@@ -22,7 +22,15 @@ sizes, or details the title can't carry.
 match, not a verbatim one. Reasonable paraphrase is fine.
 - If the source(s) do not substantiate the claim (or contradict it, or simply don't \
 address it), it is NOT supported.
-- Judge ONLY against the provided source(s), not your own knowledge.
+- Judge ONLY against the provided source(s). Do NOT use any outside knowledge about \
+the paper (its real publication date, authors, etc.) — only the text shown to you.
+- Judge the CLINICAL content of the claim. Do NOT mark a claim unsupported over \
+bibliographic details (publication year, authors, exact participant counts) — those \
+are citation metadata, not medical assertions. If the abstract doesn't state such a \
+detail, ignore it and judge the medical content. Online-first vs journal-issue \
+publication years are both acceptable.
+- Grade meaning, not exact decimals: reasonable rounding (e.g. "~61,000" for 61,589) \
+counts as supported.
 - Give a one-sentence reason."""
 
 SCHEMA = {

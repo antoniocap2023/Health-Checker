@@ -170,3 +170,31 @@ Dev failure attribution is now faithfulness (14), relevance (1), 9 ok — and un
 **Decision:** Confirms the metric-hardening hypothesis — baseline-002's weak relevance/faithfulness were **measurement artifacts, not agent faults**. This re-score is the corrected noise floor going forward; supersedes baseline-002's relevance/faithfulness numbers.
 
 **Next iteration:** With the metrics trustworthy, **faithfulness (~0.92, claim-weighted) is the real first improvement target** → tighten the answering/grounding prompt to keep paraphrases tight to the cited source. In parallel: grow the dataset (restore genuine abstain cases) and do the Phase-5 formal judge validation (κ).
+
+
+### Analysis — baseline-002-rescore faithfulness deep-dive — 2026-06-27 (no agent change)
+
+Read every unsupported claim in `baseline-002-rescore` to understand the ~0.92 faithfulness number before acting on it. The misses split into **two very different buckets**, and investigating the larger one flipped its root cause.
+
+**Bucket A — "bibliographic" misses are mostly an EVAL artifact, not an agent fault.** The single biggest contributor was q004 (rates 0.93 / 0.71 / 0.79), and most of its misses are the *same* error repeated: the agent wrote "a **2024** meta-analysis" for PMID 36103100, which the judge flagged as "published in **2022**." Investigation:
+- The agent is **not inventing the year** — it faithfully echoed our own metadata. `backend/pubmed.py:_extract_year` stores `PubDate/Year` = the **journal-issue year (2024)**; the agent reported exactly that.
+- A live efetch of 36103100 shows **both years are real**: `PubDate/Year = 2024` (issue, vol 38/4) vs `ArticleDate (Electronic) = 2022` (online-first). Classic epub-vs-issue ambiguity.
+- The **judge said "2022" using outside knowledge** — its instruction is "judge ONLY against the provided source," but the abstract states neither year, so it anchored on the epub convention from prior knowledge. It went off-script (and picked the other valid convention).
+- Same story for "~61,000 vs 61,589" — a reasonable rounding the judge nitpicked, contradicting our own recorded "lenient on fuzzy quantifiers" policy.
+- **Conclusion:** these are date-convention + over-strict-rounding artifacts (eval/judge side), not the agent being sloppy. The recurring lesson again: the eval flags its own measurement flaws.
+
+**Bucket B — "overreach / misattribution" are GENUINE agent grounding errors (the part that matters):**
+- **q007: drug-class swap** — "*SGLT2* inhibitors reduced all-cause mortality vs DPP-4" when the source attributes that to *GLP-1 agonists*; plus certainty inflation ("high certainty" where the source says "moderate").
+- **q006:** "NSAIDs carry cardiovascular and kidney risks" cited to a paper that only covers *GI* events (a risk added that isn't in the source). This one is **systematically low** (0.80 / 0.89 / 0.80) — a reproducible grounding bug.
+- **q008:** "CBT and antidepressants are broadly similar" / "choice comes down to patient preference" attributed to three papers, none of which make that comparison — cross-source synthesis overreach.
+- **q011:** specific alkaline-water/tumor-pH mechanism claims pinned to a general cancer-diet review.
+
+**Stability.** q009/q010/q012 are 1.0 across all repeats; the faithfulness spread is concentrated in q004/q007/q008, where the overreach is *intermittent* (e.g. q007 = 0.95 / 0.75 / 0.95 — it overreaches on one run only). So a prompt fix targeting overreach should cut **variance**, not just lift the mean.
+
+**Relevance precision (0.77) is dragged by the same hard questions.** q008 (21/33 retrieved off-topic) and q011 (16/18 off-topic) tank precision via keyword-collision retrieval (q011 pulled hydrotherapy / photoacidity-laser papers). Hit-rate stays ~0.97, so answers aren't starved — but **q008 and q011 are simultaneously the worst-precision AND the overreach-faithfulness questions**: noisy retrieval on broad/adversarial questions feeds loose citation.
+
+**Implications for the metric.** Because every claim is pooled into one rate, a wrong publication year counts identically to a drug-class swap — so Bucket A (largely artifacts) dilutes and masks Bucket B (the dangerous part). Splitting faithfulness into a **clinical-assertion** sub-rate (the one to optimize/gate on) and a **bibliographic-detail** sub-rate would separate signal from noise.
+
+**Where the agent prompt lives:** `backend/prompts.py` (`build_system_prompt`). The grounding rules exist ("answer ONLY from abstracts; cite every claim") but are too coarse to stop the overreach. The year issue is **not** prompt-fixable (the agent is faithful to our data) — that's eval/data-side.
+
+**Decision / next:** Bucket A is not an agent bug; do **not** chase it with an agent prompt change. The real, prompt-fixable target is **Bucket B (overreach)** → `baseline-003`. Plus two eval-hygiene items: the clinical/bibliographic faithfulness split, and the year-convention/judge-outside-knowledge fix.

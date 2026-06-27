@@ -40,6 +40,23 @@ aspirin initiated at or before 16 weeks produced the largest reductions").
 The DISTORTED case is the important one — a plausible-sounding flip of a *subgroup*
 finding (the dangerous misattribution failure). The judge caught it both times.
 
+### Probe C — bibliographic/rounding policy traps, 2026-06-27 — **2/2 PASS**
+Added after the `baseline-002-rescore` deep-dive found the judge was penalizing
+publication-year and rounding differences (and even using outside knowledge of a
+paper's real date) — diluting the clinical-faithfulness signal with citation-metadata
+noise. The faithfulness judge prompt now: judge only from the shown text (no outside
+knowledge), judge the *clinical* content, and don't penalize bibliographic details
+(year/authors/exact N) or reasonable rounding.
+
+| case | claim (vs the crafted abstract: 45 trials, 20,909 women) | verdict | correct? |
+|---|---|---|
+| ROUNDING | "studied in **roughly 21,000** women" (abstract: 20,909) | supported | ✅ |
+| METADATA-YR | "This **2020** meta-analysis of 45 trials… reduced preeclampsia" (year not in abstract) | supported | ✅ |
+
+The METADATA-YR trap is the one that matters: the clinical content is correct and the
+only off-detail is a publication year the abstract doesn't even state — the judge now
+ignores it and judges the medicine, instead of marking the claim unsupported.
+
 ### Gray-zone calls (human review)
 | input | verdict | note |
 |---|---|---|
@@ -94,10 +111,10 @@ uncited, and dropped the "I'll search PubMed" meta-line. Good.
 
 ## Summary
 
-**Trap total: 8/8 passed** across faithfulness, thoroughness, and abstention (plus a
-clean decompose sanity check). The judges discriminate — they are not rubber-stamps,
-so the smoke run's perfect faithfulness reflected a genuinely faithful agent, not a
-lenient judge.
+**Trap total: 12/12 passed** across faithfulness (incl. 2 relevance + 2 bibliographic/
+rounding-policy traps), thoroughness, and abstention (plus a clean decompose sanity
+check). The judges discriminate — they are not rubber-stamps, so the smoke run's
+perfect faithfulness reflected a genuinely faithful agent, not a lenient judge.
 
 **Two gray-zone policies — CONFIRMED 2026-06-25:**
 1. **Faithfulness stays lenient on quantifiers** — "roughly halves" for a 43%

@@ -15,8 +15,6 @@ import _pathsetup  # noqa: F401  -- backend on path + .env
 import argparse
 import json
 
-from config import settings
-
 from compare_runs import STAGE_METRIC
 from judges.client import judge
 
@@ -77,10 +75,14 @@ def parse(inp):
 
 
 def propose(client, report, journal_text, base_prompt, model=None):
-    """Draft one single-variable change → {target_stage, target_metric, rule_text, hypothesis}."""
+    """Draft one single-variable change → {target_stage, target_metric, rule_text, hypothesis}.
+
+    Runs on the judge model (Sonnet) by default — capable enough for a one-shot rule
+    suggestion, and it accepts `temperature` (the `judge()` helper forces temp 0; Opus 4.8
+    deprecates `temperature`, so don't point this at the Opus agent model)."""
     stage = weakest_stage(report)
     system, user = _build(report, journal_text, base_prompt, stage)
-    return parse(judge(client, system, user, SCHEMA, model=model or settings.model))
+    return parse(judge(client, system, user, SCHEMA, model=model))
 
 
 def main():

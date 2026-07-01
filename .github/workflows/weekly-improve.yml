@@ -1,0 +1,61 @@
+# Weekly self-improvement loop: measure → propose → re-eval → keep-if-it-wins → open a PR.
+#
+# The PR is the human approval gate; merging it triggers deploy.yml (dev auto, prod
+# manual). Nothing paid runs until you either click "Run workflow" (workflow_dispatch)
+# or UNCOMMENT the weekly schedule below — so there's no standing paid cron by surprise.
+#
+# Costs per run: ~2× a dev-N benchmark of Opus `populate` (baseline + candidate) + the
+# batched Sonnet judges + one proposer call. Tune with the `repeats`/`limit` inputs.
+name: weekly-improve
+
+on:
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: repeats per question (>=2 for a noise floor)
+        default: "3"
+      limit:
+        description: cap #questions (blank = all dev)
+        default: ""
+  # Enable hands-off weekly runs by uncommenting (Mondays 08:00 UTC):
+  # schedule:
+  #   - cron: "0 8 * * 1"
+
+permissions:
+  id-token: write       # OIDC → AWS (eval DynamoDB table)
+  contents: write       # push the improvement branch
+  pull-requests: write  # open the PR
+
+env:
+  AWS_REGION: us-east-1
+  DEPLOY_ROLE: arn:aws:iam::480566308626:role/github-actions-deploy
+  JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION: "1"
+
+jobs:
+  improve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install backend deps (agent + judges + boto3)
+        run: pip install -r backend/requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Configure git identity for the PR branch
+        run: |
+          git config user.name  "health-checker-bot"
+          git config user.email "bot@users.noreply.github.com"
+      - name: Run the improvement loop
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # populate/check write to the eval table via the OIDC role (not the prod table)
+          EVAL_DYNAMODB_TABLE_NAME: health-checker-eval-conversations
+        run: |
+          ARGS="--split dev -n ${{ github.event.inputs.repeats || '3' }}"
+          if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"; fi
+          python evals/improve_loop.py $ARGS

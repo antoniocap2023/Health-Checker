@@ -386,3 +386,23 @@ Deployed `HealthChecker-prod`, asked 3 medical questions through the live UI (on
 **Observations:** On the safety-critical axes the agent scored **perfectly on live traffic** — zero fabricated citations, every claim faithful to its source, every claim cited. The two answerable questions (aspirin, SGLT2-vs-DPP4) came back `affirmed`; the **alkaline-water myth was correctly handled as `no_evidence`** (refuted without confabulating) — the exact behavior the closing abstention-definition change credits. **No conversations flagged.** The only soft number, relevance precision **0.72**, matches the offline benchmark (~0.79 dev) — retrieval pulls in some off-topic papers but doesn't hurt answers.
 
 **Takeaway:** the online eval **agrees with the offline benchmark** — the measurement generalizes from the 27-question benchmark to real usage. That's the whole point of Phase 6. Report persisted at `evals/results/online-prod-20260701-141545.json` (gitignored). Prod is a retained table, so these conversations survive `cdk destroy` and can be re-scored anytime.
+
+
+### Phase 7 + 8 — automated improve-and-ship loop built — 2026-07-01
+
+Built the hands-off weekly system: the loop **improves** the agent and **ships** the win, with a PR as the human gate. This automates exactly what we did by hand (baseline-003→004).
+
+**Phase 7 (CI/CD — the "ship"):** `infra/cicd_stack.py` adds a GitHub **OIDC provider + `github-actions-deploy` role** (assumes the `cdk-*` bootstrap roles; also eval-table RW for the loop) — no long-lived keys. `.github/workflows/deploy.yml`: **push→dev auto, prod behind a GH-Environment manual approval**; OIDC-assume → `cdk deploy` with QEMU/buildx for the ARM64 (t4g.micro) images. `cdk synth HealthChecker-cicd` verified.
+
+**Phase 8 (the loop — the "improve"):**
+- `evals/run_benchmark.py` — populate→check(batched)→aggregate in one call (+ `--dry-run` cost preflight; dev N=3 = 54 Opus runs).
+- `evals/propose_change.py` — a **Claude proposer** (forced-tool structured output) reads the weakest stage from failure-attribution + JOURNAL history + the current prompt, and drafts **one** grounding-rule bullet targeting it (single variable, allowlisted lever).
+- `evals/compare_runs.py` — **programmatic keep/revert**, codifying the baseline-004 hand-rule: keep iff the target metric beats `k·noise` **and** no other headline stage regresses beyond noise (would auto-revert a baseline-003-style thoroughness drop).
+- `evals/improve_loop.py` — measure→propose→apply→re-eval (fresh subprocess so the edit takes effect)→decide→**open a PR** on a win (journal entry appended, branch pushed, `gh pr create`) / revert otherwise. `--no-pr` for cheap local smokes.
+- `.github/workflows/weekly-improve.yml` — `workflow_dispatch` + a **commented weekly cron** (nothing paid runs until enabled); OIDC + GH secrets + PR permissions.
+
+**Safety (defense in depth):** one variable per cycle from an allowlist; no-regression guard; `test` split never optimized; change reaches prod only via **human PR merge**; prod deploy a **second** manual approval.
+
+**Verification:** `cdk synth` cicd stack OK; both workflows valid YAML; **52 eval tests** (+8: compare_runs + propose_change) + **63 backend** green; `run_benchmark --dry-run` and the `apply_rule` anchor confirmed. **Not yet live** — needs the one-time enablement (deploy cicd stack, set prod reviewers, add GH secrets) + one dispatched cycle.
+
+**Status:** this completes the build of goal 2 (an agent that improves itself and ships) end-to-end, mirroring the manual loop. Remaining is operational enablement + a first live run.

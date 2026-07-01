@@ -11,6 +11,7 @@ setup — it's a second copy of a proven definition.
 """
 import aws_cdk as cdk
 
+from cicd_stack import CicdStack
 from health_checker_stack import HealthCheckerStack
 
 app = cdk.App()
@@ -22,5 +23,9 @@ AWS_ENV = cdk.Environment(account="480566308626", region="us-east-1")
 # Two independent environments from one stack definition, differing only by these args.
 HealthCheckerStack(app, "HealthChecker-dev", env_name="dev", instance_type="t4g.micro", env=AWS_ENV)
 HealthCheckerStack(app, "HealthChecker-prod", env_name="prod", instance_type="t4g.micro", env=AWS_ENV)
+
+# Account-global, one-time: the GitHub OIDC trust + deploy role that lets CI run the
+# deploys above (and the weekly eval loop) without long-lived AWS keys.
+CicdStack(app, "HealthChecker-cicd", env=AWS_ENV)
 
 app.synth()

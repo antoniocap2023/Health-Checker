@@ -1,0 +1,85 @@
+# Deploy health-checker to AWS via CDK, using GitHub OIDC (no long-lived keys).
+#
+#   push to main  -> deploy dev automatically, then prod PAUSES for a manual approval
+#                    (the "prod" GitHub Environment must have required reviewers set).
+#   workflow_dispatch -> deploy just the chosen environment on demand.
+#
+# The OIDC trust + role are created once by `cdk deploy HealthChecker-cicd`
+# (infra/cicd_stack.py). `cdk deploy` builds the ARM64 Docker images itself, so the
+# runner needs QEMU/buildx (t4g.micro is arm64).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "infra/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: which environment to deploy
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+# OIDC needs id-token; checkout needs contents.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  DEPLOY_ROLE: arn:aws:iam::480566308626:role/github-actions-deploy
+  JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION: "1"
+
+jobs:
+  deploy-dev:
+    # On push: always. On manual run: only when dev was chosen.
+    if: ${{ github.event_name == 'push' || github.event.inputs.environment == 'dev' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm install -g aws-cdk
+      - run: pip install -r infra/requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      # CDK builds linux/arm64 images for t4g.micro — QEMU makes that possible on x86.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - run: cdk deploy HealthChecker-dev --require-approval never
+        working-directory: infra
+
+  deploy-prod:
+    # Prod is MANUAL-ONLY: it never auto-runs on push — a human triggering
+    # "Run workflow → environment=prod" IS the approval gate. (This needs no paid
+    # feature; on a private repo, Environment required-reviewers need GitHub Pro. If
+    # you have Pro, add a Required Reviewer to the `Production` environment for a second
+    # approval click and you can also let this run on push.)
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' }}
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm install -g aws-cdk
+      - run: pip install -r infra/requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - run: cdk deploy HealthChecker-prod --require-approval never
+        working-directory: infra

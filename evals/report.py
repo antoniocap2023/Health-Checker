@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--checks", default=None, help="path to <run_id>.checks.json")
     ap.add_argument("--hypothesis", default="baseline (first scored run)")
+    ap.add_argument("--decision", default=None, help="the keep/revert decision line (else the baseline default)")
     ap.add_argument("--append-journal", action="store_true", help="append the entry to JOURNAL.md")
     args = ap.parse_args()
 
@@ -69,7 +70,7 @@ def main():
 
     entry = journal_entry.render(
         report, run_id=args.run_id, date=datetime.now().strftime("%Y-%m-%d"),
-        hypothesis=args.hypothesis, config=_config_line(report),
+        hypothesis=args.hypothesis, config=_config_line(report), decision=args.decision,
     )
 
     if args.append_journal:

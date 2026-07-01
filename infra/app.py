@@ -9,6 +9,8 @@ The headline idea of IaC lives here: dev and prod are the SAME stack code,
 instantiated twice with different arguments. prod is not a separate hand-built
 setup — it's a second copy of a proven definition.
 """
+import os
+
 import aws_cdk as cdk
 
 from cicd_stack import CicdStack
@@ -16,9 +18,14 @@ from health_checker_stack import HealthCheckerStack
 
 app = cdk.App()
 
-# Account + region pinned to the PERSONAL account on purpose (this machine also has a
-# WORK profile) — so neither environment can be deployed to the wrong account.
-AWS_ENV = cdk.Environment(account="480566308626", region="us-east-1")
+# Account + region come from the environment, so no account id is hardcoded in the repo.
+# CDK sets CDK_DEFAULT_ACCOUNT/REGION from the active credentials at synth time; set
+# AWS_ACCOUNT_ID explicitly to pin deploys to one account (guards against deploying to
+# the wrong profile).
+AWS_ENV = cdk.Environment(
+    account=os.environ.get("AWS_ACCOUNT_ID") or os.environ.get("CDK_DEFAULT_ACCOUNT"),
+    region=os.environ.get("AWS_REGION") or os.environ.get("CDK_DEFAULT_REGION") or "us-east-1",
+)
 
 # Two independent environments from one stack definition, differing only by these args.
 HealthCheckerStack(app, "HealthChecker-dev", env_name="dev", instance_type="t4g.micro", env=AWS_ENV)

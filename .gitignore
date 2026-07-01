@@ -15,3 +15,6 @@ evals/results/*
 
 # Misc
 .DS_Store
+
+# CDK context cache (regenerated on synth; can embed account/AZ lookups)
+infra/cdk.context.json

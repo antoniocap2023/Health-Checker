@@ -19,9 +19,9 @@ lives in SSM; the box reads it at boot. This stops random bots from abusing the 
 `/api/chat` endpoint. (Plain HTTP for now — HTTPS is a future follow-up.)
 
 ## Prerequisites (already done once)
-- AWS CLI configured as profile **`personal`** (account 480566308626, us-east-1).
+- AWS CLI configured as profile **`personal`** (account <AWS_ACCOUNT_ID>, us-east-1).
 - CDK CLI installed; `infra/.venv` created (`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`).
-- Account bootstrapped once: `AWS_PROFILE=personal cdk bootstrap aws://480566308626/us-east-1`.
+- Account bootstrapped once: `AWS_PROFILE=personal cdk bootstrap aws://<AWS_ACCOUNT_ID>/us-east-1`.
 - Docker running locally (CDK builds the images during deploy).
 
 ## Deploy (from the `infra/` directory)

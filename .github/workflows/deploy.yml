@@ -30,9 +30,10 @@ permissions:
   id-token: write
   contents: read
 
+# The deploy role ARN is a repo secret (AWS_DEPLOY_ROLE_ARN) so no account id lives in
+# the repo. It's the output of the HealthChecker-cicd stack.
 env:
   AWS_REGION: us-east-1
-  DEPLOY_ROLE: arn:aws:iam::480566308626:role/github-actions-deploy
   JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION: "1"
 
 jobs:
@@ -51,7 +52,7 @@ jobs:
       - run: python -m venv infra/.venv && infra/.venv/bin/pip install -r infra/requirements.txt
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       # CDK builds linux/arm64 images for t4g.micro — QEMU makes that possible on x86.
       - uses: docker/setup-qemu-action@v3
@@ -79,7 +80,7 @@ jobs:
       - run: python -m venv infra/.venv && infra/.venv/bin/pip install -r infra/requirements.txt
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3

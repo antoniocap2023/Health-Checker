@@ -28,7 +28,6 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  DEPLOY_ROLE: arn:aws:iam::480566308626:role/github-actions-deploy
   JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION: "1"
 
 jobs:
@@ -42,7 +41,7 @@ jobs:
         run: pip install -r backend/requirements.txt
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.DEPLOY_ROLE }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Configure git identity for the PR branch
         run: |

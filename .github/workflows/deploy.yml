@@ -47,7 +47,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm install -g aws-cdk
-      - run: pip install -r infra/requirements.txt
+      # cdk.json runs the app via `.venv/bin/python app.py`, so create that venv.
+      - run: python -m venv infra/.venv && infra/.venv/bin/pip install -r infra/requirements.txt
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.DEPLOY_ROLE }}
@@ -74,7 +75,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm install -g aws-cdk
-      - run: pip install -r infra/requirements.txt
+      # cdk.json runs the app via `.venv/bin/python app.py`, so create that venv.
+      - run: python -m venv infra/.venv && infra/.venv/bin/pip install -r infra/requirements.txt
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.DEPLOY_ROLE }}

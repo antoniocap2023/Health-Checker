@@ -406,3 +406,18 @@ Built the hands-off weekly system: the loop **improves** the agent and **ships**
 **Verification:** `cdk synth` cicd stack OK; both workflows valid YAML; **52 eval tests** (+8: compare_runs + propose_change) + **63 backend** green; `run_benchmark --dry-run` and the `apply_rule` anchor confirmed. **Not yet live** — needs the one-time enablement (deploy cicd stack, set prod reviewers, add GH secrets) + one dispatched cycle.
 
 **Status:** this completes the build of goal 2 (an agent that improves itself and ships) end-to-end, mirroring the manual loop. Remaining is operational enablement + a first live run.
+
+
+### Phase 7 + 8 — first live runs on GitHub Actions — 2026-07-01
+
+Enabled and exercised the pipeline live (deployed `HealthChecker-cicd`, added GH secrets):
+
+**Phase 7 (CI/CD) — proven on both environments via OIDC (no long-lived keys):**
+- `deploy-dev` ✅ (auto on push) and `deploy-prod` ✅ (manual `workflow_dispatch → prod`, the gate). New prod box at 34.194.241.128.
+- Two CI-only bugs found + fixed on the first runs: (1) `cdk.json` runs `.venv/bin/python`, so CI must create `infra/.venv` (not a bare `pip install`); (2) the retained prod table vs a destroyed stack re-triggered the `AlreadyExists` conflict (cleared the orphaned table, redeployed). Dev never hits (2) — its table is `DESTROY`.
+
+**Phase 8 (the loop) — first live cycle ran green end-to-end, and the safety guard worked:**
+- Bug fixed first: the proposer used `settings.model` (Opus 4.8) through the forced-tool `judge()` helper, which sets `temperature=0` — **Opus 4.8 deprecates `temperature`** → 400. Fixed by running the proposer on the **judge model (Sonnet)**, which accepts it. (Judges were always Sonnet, so unaffected.)
+- Live cycle (`weekly-improve`, dev N=2, limit=4): proposer targeted the weakest stage (**thoroughness**) and proposed a rule to enumerate every clinical dimension. Candidate re-eval → **REVERT**: thoroughness_coverage **+0.031** but faithfulness_rate **−0.023** (beyond noise). The **no-regression guard reverted it autonomously — no PR.** This is precisely the baseline-003 over-correction pattern (gain one stage, lose another), now caught by the automated comparator with no human involved.
+
+**Takeaway:** every mechanism of goal 2 is proven live — measure → propose → apply → re-eval → **keep/revert with a no-regression guard** → PR-on-a-win → merge→deploy (merge is just a push to `main`, and push→dev-deploy is already green). A *winning* PR is win-dependent (this cycle correctly produced none); re-dispatching may yield one, since the proposer is non-deterministic. The weekly cron stays commented until explicitly enabled (cost control).

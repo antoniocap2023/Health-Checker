@@ -1,5 +1,10 @@
 # Health-Checker — a PubMed-grounded medical Q&A agent with a self-improving eval harness
 
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
+![tests](https://img.shields.io/badge/tests-115%20passing-brightgreen.svg)
+![judge κ](https://img.shields.io/badge/judge%20%CE%BA%20vs%20human-0.85-brightgreen.svg)
+
 A health question-answering agent that answers **only** from peer-reviewed PubMed
 abstracts and cites every claim by PMID — wrapped in a **deterministic, defensible
 evaluation suite** and an **automated improvement loop** that measures the agent, proposes
@@ -9,6 +14,30 @@ PR.
 The interesting part isn't the chatbot — it's the **measurement and the loop around it**:
 how do you *trust* an LLM's answers enough to optimize them, and then let the system improve
 itself safely?
+
+---
+
+## Results at a glance
+
+Headline numbers on the 27-question gold benchmark (N=3 repeats), plus judge trust and live
+traffic. Full run history and the reasoning behind every number is in
+[`evals/JOURNAL.md`](evals/JOURNAL.md).
+
+| Signal | Result |
+|---|---|
+| **Citation validity** — cited PMIDs were actually retrieved (no fabrication) | **1.00** |
+| **Faithfulness** — each claim accurate to its cited abstract | **0.96** dev / 0.95 test |
+| **Relevance** — retrieval surfaced on-topic evidence (hit@k) | **0.98** dev / 1.00 test · precision 0.79 |
+| **Thoroughness** — answer covers the gold sub-points | **0.96** dev / 0.98 test |
+| **Abstention** — correctly declines on no-evidence questions | **1.00** |
+| **Judge trust** — Cohen's κ vs blind human labels | **0.85** (judges err *conservative*) |
+| **Online eval** — same checks on real production traffic | **agrees with the benchmark** |
+
+> The self-improving loop, in its first live run, **autonomously reverted** a proposed change
+> that lifted thoroughness (+0.031) but regressed faithfulness (−0.023) — the no-regression
+> guard working with no human in the loop. And several early "bad" scores turned out to be the
+> *metric* mis-measuring, not the agent: the eval repeatedly caught its **own** flaws before
+> they could mislead the optimizer.
 
 ---
 
@@ -56,8 +85,7 @@ A few decisions that define the project (the full story is in
   circular.
 - **The autonomous loop is safe by construction:** one variable per cycle from an allow-list,
   a no-regression guard, `test` never optimized, and nothing reaches production without a human
-  merging the PR (prod deploy is a separate manual approval). In its first live run, the guard
-  *autonomously reverted* a change that improved thoroughness but regressed faithfulness.
+  merging the PR (prod deploy is a separate manual approval).
 
 ---
 

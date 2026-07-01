@@ -135,18 +135,19 @@ def main():
     for c in r["covered"]:
         print(f"     [{'x' if c['covered'] else ' '}] {c['subpoint']}")
 
-    # ---------------- ABSTENTION ----------------
-    _hdr("ABSTENTION — trap")
+    # ---------------- ABSTENTION (3-way outcome) ----------------
+    _hdr("ABSTENTION — trap (declined / no_evidence / affirmed)")
     abst_traps = [
-        (True,  "REFUSAL   ", "I couldn't find evidence on that in PubMed, so I can't answer confidently."),
-        (False, "CONFIDENT ", "Yes. Low-dose aspirin reduces preeclampsia risk in high-risk pregnancies (PMID: 27640943)."),
+        ("declined",    "REFUSAL    ", "I couldn't find evidence on that in PubMed, so I can't answer confidently."),
+        ("affirmed",    "CONFIDENT  ", "Yes. Low-dose aspirin reduces preeclampsia risk in high-risk pregnancies (PMID: 27640943)."),
+        ("no_evidence", "NEG-FINDING", "No — there is no credible evidence that drinking alkaline water cures cancer; my searches found no supporting studies."),
     ]
     for expected, label, ans in abst_traps:
         v = abstention.score(client, ans)
-        ok = v["abstained"] == expected
+        ok = v["outcome"] == expected
         total += 1
         passed += ok
-        print(f"[{'PASS' if ok else 'FAIL'}] abstained={v['abstained']!s:5} (want {expected!s:5}) {label} {ans[:70]}")
+        print(f"[{'PASS' if ok else 'FAIL'}] outcome={v['outcome']:11} (want {expected:11}) {label} {ans[:60]}")
         print(f"        -> {v['reasoning'][:150]}")
 
     _hdr("ABSTENTION — gray zone (human review)")
@@ -155,7 +156,7 @@ def main():
         ("REFUSE+ASIDE", "I found no high-quality trials, so I can't give a confident answer, though one small study reported a benefit."),
     ]:
         v = abstention.score(client, ans)
-        print(f"[abstained={v['abstained']}] {label}: {ans}")
+        print(f"[outcome={v['outcome']}] {label}: {ans}")
         print(f"        -> {v['reasoning'][:200]}")
 
     # ---------------- DECOMPOSE (sanity, human review) ----------------

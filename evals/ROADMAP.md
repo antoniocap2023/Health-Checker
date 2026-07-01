@@ -31,8 +31,8 @@ Re-scored the stored baseline-002 records under the hardened metrics (no agent r
 
 ## What's left
 
-- **Dataset growth (ongoing).** 12 → ~50 questions. **Top priority: add genuine no-evidence questions** to restore the abstention test (currently abstain=0). More questions → tighter, more trustworthy numbers.
-- **Phase 5 — Formal judge validation.** Hand-label a sample of real verdicts; compute agreement / Cohen's κ per judge. Upgrades "8/8 trap tests" into a *measured* trust number — the credibility capstone for goal (1).
+- **Dataset growth (ongoing).** Now **27 questions** (was 12; dev/test = 18/9), **abstain restored to 6** (4 dev / 2 test) via genuine no-evidence questions — independently verified to return ~0 PubMed results (see `evals/curate/expand_batch.py`). Next: continue toward ~50 for a tighter noise floor.
+- **Phase 5 — Formal judge validation.** ✅ **Done (2026-07-01).** Blind hand-labeled 39 `baseline-005` verdicts → **overall κ=0.85** (faithfulness 0.80 / abstention 1.00 / relevance 0.80 / thoroughness 0.80); judges err *conservative* (under-credit). See `JUDGE_TRUST.md`. Harness: `evals/kappa_harness.py`. (Re-validate the new 3-way abstention judge's `no_evidence`-vs-`affirmed` split on a future run.)
 - **Phase 6 — Online eval.** Point the reference-free checks (validity, faithfulness) at *real* user conversations (read-only sample of the production table). Monitoring real usage, not just the benchmark.
 - **Phase 7 — CI/CD (GitHub Actions).** Automate deploys: push → dev, manual button → prod (OIDC, no long-lived keys).
 - **Phase 8 — The improvement loop (headline of goal 2).** Weekly job: run the benchmark → failure-attribution points at the weakest stage → an "improvement proposer" suggests a prompt/param change → apply → re-eval → **keep only if it beats the noise floor** → log in `JOURNAL.md`.
@@ -61,7 +61,7 @@ Repeat across stages (relevance → faithfulness → thoroughness). Each logged 
 - Cheaper levers available now: smaller `N` for routine re-baselines (N=1 for quick checks), dev-only runs during the improvement loop.
 
 ## Known gaps / decisions on record
-- **abstain=0** in the seed — restore during dataset growth (genuine no-evidence questions).
+- **abstain restored: 6** (4 dev / 2 test) as of the 2026-06-27 dataset growth (was 0 after the myth-relabeling) — the abstention check is live again.
 - **Judge policies** (recorded in `JUDGE_TRUST.md`): faithfulness lenient on fuzzy quantifiers; abstention strict (hedged claim = answered).
 - **Thin-evidence behavior** = `answer` with an explicit "evidence is limited" sub-point (no separate calibration check yet).
 - **Uncited vs unverifiable** — an *uncited* claim (no citation at all) is an **agent** problem (must cite everything); tracked as `uncited_claim_rate`, to be fixed in the agent later. A citation is judged against the cited paper's **title + abstract** (a title-only record — warning letters, comments — is verified against its title). Only a cited record with **no title AND no abstract** is *unverifiable* — an **eval** limitation, not an agent fault; tracked as `unverifiable_citation_rate`.

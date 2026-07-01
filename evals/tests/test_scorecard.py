@@ -31,7 +31,7 @@ def test_answer_row_full_scorecard():
             "expected_behavior": "answer", "gold_pmids": ["111"], "subpoints": ["a", "b"]}
     # Call order: abstention, relevance (1 per retrieved paper), decompose, claim verdict, thoroughness.
     client = _client([
-        {"abstained": False, "reasoning": "makes claims"},
+        {"outcome": "affirmed", "reasoning": "makes claims"},
         {"relevant": True, "reasoning": "on topic"},
         {"claims": [{"claim": "X reduces Y", "cited_pmids": ["111"]}]},
         {"supported": True, "reasoning": "matches"},
@@ -58,7 +58,7 @@ def test_abstain_row_scorecard():
     }
     gold = {"question_id": "q9", "type": "adversarial", "split": "dev",
             "expected_behavior": "abstain", "gold_pmids": [], "subpoints": []}
-    client = _client([{"abstained": True, "reasoning": "declines, no evidence"}])
+    client = _client([{"outcome": "declined", "reasoning": "declines, no evidence"}])
 
     card = score_record(record, gold, client)
     assert card["abstention"]["correct"] is True
@@ -66,6 +66,26 @@ def test_abstain_row_scorecard():
     assert card["faithfulness"] is None
     assert card["thoroughness"] is None
     assert card["validity"]["ok"] is True
+
+
+def test_abstain_row_credits_no_evidence_and_fails_affirmation():
+    """Closing change: on a no-evidence question, a correct 'no credible evidence'
+    counts as handled correctly; only confabulating (affirming) is a false answer."""
+    base = {"repeat": 0, "retrieved": [], "cited_pmids": []}
+    gold = {"question_id": "q9", "type": "adversarial", "split": "dev",
+            "expected_behavior": "abstain", "gold_pmids": [], "subpoints": []}
+
+    def card_for(outcome, answer):
+        rec = {**base, "messages": [{"role": "user", "content": "q"},
+                                    {"role": "assistant", "content": answer}]}
+        return score_record(rec, gold, _client([{"outcome": outcome, "reasoning": "r"}]))
+
+    # "no evidence exists" → correct (the calibrated, ideal response)
+    assert card_for("no_evidence", "No — there's no evidence for this.")["abstention"]["correct"] is True
+    # bare decline → correct
+    assert card_for("declined", "I couldn't find evidence on that.")["abstention"]["correct"] is True
+    # confabulated a positive claim → false answer
+    assert card_for("affirmed", "Yes, it works.")["abstention"]["correct"] is False
 
 
 def test_assemble_record_matches_sequential():
@@ -83,7 +103,7 @@ def test_assemble_record_matches_sequential():
 
     # Same canned outputs the sequential test feeds, but as de-keyed batch results.
     seq_client = _client([
-        {"abstained": False, "reasoning": "makes claims"},
+        {"outcome": "affirmed", "reasoning": "makes claims"},
         {"relevant": True, "reasoning": "on topic"},
         {"claims": [{"claim": "X reduces Y", "cited_pmids": ["111"]}]},
         {"supported": True, "reasoning": "matches"},
@@ -92,7 +112,7 @@ def test_assemble_record_matches_sequential():
     seq = score_record(record, gold, seq_client)
 
     parts = {
-        "abstention": {"abstained": False, "reasoning": "makes claims"},
+        "abstention": {"outcome": "affirmed", "reasoning": "makes claims"},
         "relevance": [{"relevant": True, "reasoning": "on topic"}],
         "decompose": {"claims": [{"claim": "X reduces Y", "cited_pmids": ["111"]}]},
         "faithfulness": [{"supported": True, "reasoning": "matches"}],

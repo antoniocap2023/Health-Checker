@@ -104,8 +104,15 @@ def test_thoroughness_no_subpoints():
 
 
 def test_abstention_parses():
-    assert abstention.score(_client([{"abstained": True, "reasoning": "no evidence"}]), "a")["abstained"] is True
-    assert abstention.score(_client([{"abstained": False, "reasoning": "claims"}]), "a")["abstained"] is False
+    declined = abstention.score(_client([{"outcome": "declined", "reasoning": "no evidence"}]), "a")
+    assert declined["outcome"] == "declined" and declined["abstained"] is True
+    affirmed = abstention.score(_client([{"outcome": "affirmed", "reasoning": "claims"}]), "a")
+    assert affirmed["outcome"] == "affirmed" and affirmed["abstained"] is False
+    # middle category: a correct "no credible evidence" is neither a bare decline nor a positive claim
+    neg = abstention.score(_client([{"outcome": "no_evidence", "reasoning": "no credible evidence"}]), "a")
+    assert neg["outcome"] == "no_evidence" and neg["abstained"] is False
+    # malformed verdict defaults to the strict reading
+    assert abstention.score(_client([{"reasoning": "?"}]), "a")["outcome"] == "affirmed"
 
 
 # --- batch building blocks (pure; no client) ---

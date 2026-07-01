@@ -127,5 +127,41 @@ Both match the judges' current behavior, so no prompt change was needed; recorde
 here so the strictness was set on purpose.
 
 **Limitations:** small, hand-picked cases establishing discrimination — not a measured
-accuracy. **Phase 5** does the formal validation: hand-label a sample of real verdicts
-and report judge-vs-human agreement / κ per judge.
+accuracy. **Phase 5** (below) does the formal validation.
+
+---
+
+## Phase 5 — Cohen's κ (judge vs human), 2026-07-01
+
+Formal validation: a human hand-labeled a **blind** stratified sample of real
+`baseline-005` verdicts (verdict hidden during labeling), then agreement was scored
+with `evals/kappa_harness.py`. This upgrades "12/12 traps" into a *measured*
+judge–human agreement.
+
+| judge | n | κ | raw agreement | band |
+|---|---|---|---|---|
+| faithfulness | 10 | 0.80 | 90% | substantial |
+| abstention | 9 | 1.00 | 100% | almost perfect |
+| relevance | 10 | 0.80 | 90% | substantial |
+| thoroughness | 10 | 0.80 | 90% | substantial |
+| **overall** | **39** | **0.847** | **92%** | almost perfect |
+
+All judges clear the ≥0.6 trustworthy bar; overall κ=0.85 is "almost perfect."
+
+**Two findings from the disagreements:**
+1. **The judges are stricter than the human, never looser.** All 3 disagreements were
+   `human=supported/relevant/covered, judge=not` — the judge withheld credit the human
+   gave (e.g. balked at a specific OR not pinned in the shown abstract; wanted the exact
+   head-to-head comparison; wanted a sub-point stated more explicitly). So the eval's
+   numbers are mildly **conservative** — the agent is, if anything, slightly better than
+   reported. That's the safe direction to err for a safety-oriented benchmark.
+2. **The abstention judge is reliable (κ=1.0), which *revised* an earlier hypothesis.**
+   baseline-005's low abstention_correct (0.22) had looked like judge inconsistency, but
+   per-item the judge agrees with the human perfectly. So the low score is the **agent**
+   giving substantive "no, and here's what I found" answers instead of clean refusals —
+   and a **label-definition** question (should a calibrated "there's no evidence for this"
+   count as a pass?) — not an unreliable judge.
+
+**Caveats:** one human rater (κ is judge-vs-this-rater, not divine ground truth);
+~10 items/judge → directional κ with a wide CI. Reproduce:
+`kappa_harness.py sample → label → score` (see the script header).

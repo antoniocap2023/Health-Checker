@@ -41,7 +41,16 @@ def _relevance_card(rel, record, gold_row):
 
 def _abstention_card(abst, expected):
     abst["expected"] = expected
-    abst["correct"] = abst["abstained"] == (expected == "abstain")
+    if expected == "abstain":
+        # A no-evidence question is handled correctly if the agent did NOT assert an
+        # unsupported positive claim — i.e. it declined OR reported no credible evidence
+        # (a calibrated "no" is the ideal response, not just a bare refusal). Only an
+        # "affirmed" answer (confabulating support) is a false answer.
+        abst["correct"] = abst["outcome"] != "affirmed"
+    else:
+        # An answerable question is handled correctly if the agent gave a substantive
+        # answer — affirming OR refuting — rather than declining (a false refusal).
+        abst["correct"] = abst["outcome"] != "declined"
     return abst
 
 

@@ -95,3 +95,34 @@ class ConversationStore:
             if not start:
                 return items
             kwargs["ExclusiveStartKey"] = start
+
+    def scan_sample(self, only_real=False, max_scan=None):
+        """Read a sample of full items via a paginated scan. READ-ONLY.
+
+        Used by the online eval to pull real user conversations for reference-free
+        scoring. `only_real=True` filters to real conversations (no eval `run_id` tag).
+        `max_scan` caps how many items DynamoDB *reads* (a cost bound on an unbounded
+        prod table) — note the filter is applied AFTER the read, so this bounds items
+        scanned, not items returned. Recency ordering (by `created_at`) is left to the
+        caller, since the table has no timestamp index.
+        """
+        from boto3.dynamodb.conditions import Attr
+
+        items, scanned = [], 0
+        kwargs = {}
+        if only_real:
+            kwargs["FilterExpression"] = Attr("run_id").not_exists()
+        while True:
+            if max_scan is not None:
+                remaining = max_scan - scanned
+                if remaining <= 0:
+                    break
+                kwargs["Limit"] = remaining
+            resp = self._table.scan(**kwargs)
+            items.extend(resp.get("Items", []))
+            scanned += resp.get("ScannedCount", 0)
+            start = resp.get("LastEvaluatedKey")
+            if not start:
+                break
+            kwargs["ExclusiveStartKey"] = start
+        return items

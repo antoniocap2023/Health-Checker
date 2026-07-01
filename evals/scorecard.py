@@ -22,6 +22,15 @@ def _answer_text(record):
     return ""
 
 
+def _question_text(record):
+    """The user's question — the first user turn. Online scoring recovers it from the
+    conversation itself (no gold row); mirrors `_answer_text`."""
+    for m in record.get("messages", []):
+        if m.get("role") == "user":
+            return m.get("content", "")
+    return ""
+
+
 def _relevance_card(rel, record, gold_row):
     """Combine the topical relevance block with the demoted gold-overlap diagnostic."""
     gold = gold_relevance(record, gold_row.get("gold_pmids", []))
@@ -124,5 +133,42 @@ def assemble_record(record, gold_row, parts):
         card["relevance"] = None
         card["faithfulness"] = None
         card["thoroughness"] = None
+
+    return card
+
+
+def assemble_online(record, parts):
+    """Reference-free per-record scorecard for a REAL conversation (no gold).
+
+    Reuses the same check helpers as `assemble_record` but drops everything
+    gold-dependent: no thoroughness, no gold-overlap diagnostic, and abstention is the
+    raw `outcome` classification (no `correct` — there's no expected_behavior label).
+    Relevance + faithfulness are scored only when the turn actually retrieved papers
+    (an abstain-style answer just gets validity + the abstention outcome).
+
+    `parts` mirrors `assemble_record`: {"abstention", "decompose", "relevance":[...],
+    "faithfulness":[...]}.
+    """
+    card = {
+        "conversation_id": record.get("conversation_id"),
+        "created_at": record.get("created_at"),
+        "question": _question_text(record),
+        "validity": validity(record),
+        "abstention": abstention.parse(parts.get("abstention")),
+    }
+    retrieved = record.get("retrieved", [])
+    if retrieved:
+        judged = [{"pmid": str(a.get("pmid")), **relevance_judge.parse_paper(inp)}
+                  for a, inp in zip(retrieved, parts.get("relevance", []))]
+        card["relevance"] = relevance_judge.assemble(judged)
+
+        claims = decompose.parse(parts.get("decompose"))
+        plan_result = faithfulness.plan(record, claims)
+        verdicts = [faithfulness.parse_claim(inp) if inp is not None else None
+                    for inp in parts.get("faithfulness", [])]
+        card["faithfulness"] = faithfulness.assemble(plan_result, verdicts)
+    else:
+        card["relevance"] = None
+        card["faithfulness"] = None
 
     return card

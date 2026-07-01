@@ -354,3 +354,16 @@ All 18 abstain records classified `no_evidence` — **0 `affirmed`, 0 `declined`
 **Decision / wrap-up:** KEEP. This closes the **current refinement portion** — metric hardening, judge trust (κ), and the abstention definition. Where it stands: a trustworthy measurement instrument (funnel + noise floor + κ=0.85 judges that err conservative) and a demonstrated improvement loop (baseline-003→004 kept a real dangerous-bug fix), with the agent shown strong on answerable questions and correctly calibrated on no-evidence ones.
 
 **This is a checkpoint, not the end.** The roadmap continues from here — next up: **dataset growth toward ~50**, then **Phase 6 (online eval on real conversations)**, **Phase 7 (CI/CD)**, and **Phase 8 (automating the improvement loop we just ran by hand)**. Those are the planned next steps, not dropped scope.
+
+
+### Phase 6 — Online eval built — 2026-07-01 (skipped further dataset growth per decision)
+
+Built `evals/online_eval.py`: score a recent-N sample of **real** conversations from the **dev or prod** table (`--source dev|prod`, read-only) with the reference-free checks — the point being to monitor *actual usage*, not just the 27-question benchmark.
+
+- **No backend change needed.** Exploration confirmed prod & dev already persist the full evidence record (`queries`/`retrieved`/`cited_pmids`) via the agent's `on_complete`, same shape as eval records. Two tables exist: `health-checker-conversations-{dev,prod}`.
+- **Reference-free reuse.** Validity (deterministic), relevance (topical judge, `subpoints=[]`), faithfulness (`plan`+judge), and the abstention **outcome** all run without gold — reusing the exact offline judge `build/parse/assemble` helpers + the two-phase batch pipeline. The question is recovered from the conversation's first user turn (`scorecard._question_text`), not a gold row. New code is thin: `ConversationStore.scan_sample` (bounded read-only scan), `scorecard.assemble_online` (gold-free assembler), and the CLI.
+- **Excluded (need gold):** thoroughness, relevance gold-recall, abstention correctness/false-answer.
+- **Output:** reference-free metrics (validity_ok / fabricated_pmid / relevance hit+precision / faithfulness / unverifiable / uncited / abstention-outcome distribution) + **flagged conversations** (fabricated citations, unsupported claims) + a persisted `results/online-<env>-<ts>.json`.
+- **Caveats on record:** recent-N without a `created_at` GSI means a bounded scan (`--max-scan`); evidence is last-write-wins per conversation, so scoring reflects the latest answered turn.
+
+Tests: 44 evals (+4 online, fake store + fake client) + 63 backend green. Also ran it **live, read-only** against real tables: `prod` and the legacy `health-checker-conversations` each currently hold 1 conversation, both scored end-to-end (real Sonnet abstention: one `declined`, one `affirmed`; validity + persist worked). The dev table isn't deployed right now (dev uses `RemovalPolicy.DESTROY`); the retrieval→relevance→faithfulness path is covered by the offline test since the sparse live data had no retrieval-bearing turn. Decision: **skipped further dataset growth** (27 makes the point) and moved to Phase 6. **Next:** re-run once there's more real traffic (or redeploy dev + chat to seed it); then Phase 7/8.

@@ -116,7 +116,7 @@ Read [`docs/eval-design.md`](docs/eval-design.md) for the *why*, and
 
 ---
 
-## The self-improving loop 🔁
+## The self-improving loop 
 
 The headline capability: a weekly job (GitHub Actions, or run on demand) that **improves the
 agent and ships the win**, with a human as the only approval step.
@@ -170,7 +170,7 @@ exists to prevent, with no human involved.
 
 ---
 
-## Online evaluation 📡
+## Online evaluation 
 
 The offline benchmark answers *"is this change an improvement?"* under controlled conditions.
 **Online eval answers *"how are we actually doing on real usage?"*** — it points the

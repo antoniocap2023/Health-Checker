@@ -367,3 +367,22 @@ Built `evals/online_eval.py`: score a recent-N sample of **real** conversations 
 - **Caveats on record:** recent-N without a `created_at` GSI means a bounded scan (`--max-scan`); evidence is last-write-wins per conversation, so scoring reflects the latest answered turn.
 
 Tests: 44 evals (+4 online, fake store + fake client) + 63 backend green. Also ran it **live, read-only** against real tables: `prod` and the legacy `health-checker-conversations` each currently hold 1 conversation, both scored end-to-end (real Sonnet abstention: one `declined`, one `affirmed`; validity + persist worked). The dev table isn't deployed right now (dev uses `RemovalPolicy.DESTROY`); the retrieval→relevance→faithfulness path is covered by the offline test since the sparse live data had no retrieval-bearing turn. Decision: **skipped further dataset growth** (27 makes the point) and moved to Phase 6. **Next:** re-run once there's more real traffic (or redeploy dev + chat to seed it); then Phase 7/8.
+
+
+### Online run online-prod-20260701 — 2026-07-01 (first full live online eval)
+
+Deployed `HealthChecker-prod`, asked 3 medical questions through the live UI (one per conversation), then ran `online_eval --source prod` against the prod table — the **full online funnel on real traffic**, all three with retrieval.
+
+**Results (reference-free, n=3, all with retrieval):**
+
+| metric | value |
+|---|---|
+| validity_ok_rate | **1.00** (fabricated_pmid_rate 0.00) |
+| faithfulness_rate | **1.00** (unverifiable 0.00, uncited 0.00) |
+| relevance_hit_rate | 1.00 |
+| relevance_precision | 0.72 |
+| abstention_outcomes | `{no_evidence: 1, affirmed: 2}` |
+
+**Observations:** On the safety-critical axes the agent scored **perfectly on live traffic** — zero fabricated citations, every claim faithful to its source, every claim cited. The two answerable questions (aspirin, SGLT2-vs-DPP4) came back `affirmed`; the **alkaline-water myth was correctly handled as `no_evidence`** (refuted without confabulating) — the exact behavior the closing abstention-definition change credits. **No conversations flagged.** The only soft number, relevance precision **0.72**, matches the offline benchmark (~0.79 dev) — retrieval pulls in some off-topic papers but doesn't hurt answers.
+
+**Takeaway:** the online eval **agrees with the offline benchmark** — the measurement generalizes from the 27-question benchmark to real usage. That's the whole point of Phase 6. Report persisted at `evals/results/online-prod-20260701-141545.json` (gitignored). Prod is a retained table, so these conversations survive `cdk destroy` and can be re-scored anytime.
